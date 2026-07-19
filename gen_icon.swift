@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 import CoreGraphics
 
-/// Render one frame of the HyperVibe icon at the given pixel size.
+/// Render one frame of the Baton icon at the given pixel size.
 /// Design: squircle with solid #252525 background and solid #FFFFFF walkie-talkie illustration.
 func renderIcon(size: CGFloat) -> Data? {
     let w = Int(size), h = Int(size)
@@ -75,7 +75,7 @@ let frames: [(name: String, px: Int)] = [
     ("icon_512x512@2x.png",1024),
 ]
 
-let outDir = URL(fileURLWithPath: "HyperVibe.iconset")
+let outDir = URL(fileURLWithPath: "Baton.iconset")
 try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
 
 for frame in frames {
@@ -85,4 +85,4 @@ for frame in frames {
     }
     try data.write(to: outDir.appendingPathComponent(frame.name))
 }
-print("Wrote \(frames.count) frames to HyperVibe.iconset/")
+print("Wrote \(frames.count) frames to Baton.iconset/")

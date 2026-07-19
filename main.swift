@@ -1,6 +1,6 @@
 //
 //  main.swift
-//  HyperVibe
+//  Baton
 //
 //  Application entry point
 //

@@ -1,16 +1,16 @@
-<img src="banner.png" alt="HyperVibe — a walkie-talkie for Claude Code">
+<img src="banner.png" alt="Baton — a walkie-talkie for Claude Code">
 
-# HyperVibe V0.1
+# Baton V0.1
 
 One-handed vibe coding using Apple TV remote, customizable buttons and gestures.
 
 Grab a remote, push to talk, and vibe-code with Claude Code without breaking flow.
 
-<img src="demo.gif" alt="HyperVibe demo" width="70%">
+<img src="demo.gif" alt="Baton demo" width="70%">
 
 Tested with the 1st-gen Siri Remote (Model A1513). Support for Xbox Adaptive Joystick coming soon.
 
-> **Experimental release.** For now, HyperVibe ships as an experiment — there is no pre-built binary. You'll have to build the app bundle yourself (see [Building](#building)). Your mileage may vary.
+> **Experimental release.** For now, Baton ships as an experiment — there is no pre-built binary. You'll have to build the app bundle yourself (see [Building](#building)). Your mileage may vary.
 
 ---
 
@@ -84,9 +84,9 @@ Button mappings and swipe mappings are saved to UserDefaults (`buttonMappings`, 
 
 ### Safety
 
-- **Stuck-key prevention.** If the remote disconnects while a push-to-talk key is held, HyperVibe releases the virtual key automatically.
+- **Stuck-key prevention.** If the remote disconnects while a push-to-talk key is held, Baton releases the virtual key automatically.
 - **Stale-hold self-heal.** If a release HID event is ever missed, the next press closes the stale hold before opening a new one.
-- **HID seize.** On connect, HyperVibe seizes the remote at the HID level so macOS no longer also sees media key events from it — no double-dispatch (e.g., to iTunes/Music), no system funk sound on unhandled keys.
+- **HID seize.** On connect, Baton seizes the remote at the HID level so macOS no longer also sees media key events from it — no double-dispatch (e.g., to iTunes/Music), no system funk sound on unhandled keys.
 
 ---
 
@@ -110,8 +110,8 @@ This runs a single `swiftc` invocation over all the project's Swift files, linki
 ## Installing and Running
 
 1. Build and bundle: `./build.sh && ./create_app_bundle.sh`
-2. Move `HyperVibe.app` to `/Applications` (optional but helps icon caching)
-3. Launch it (`open HyperVibe.app`)
+2. Move `Baton.app` to `/Applications` (optional but helps icon caching)
+3. Launch it (`open Baton.app`)
 4. Grant permissions in **System Settings → Privacy & Security**:
    - **Accessibility** (for posting keyboard/mouse events)
    - **Input Monitoring** (for reading HID events)
@@ -119,9 +119,9 @@ This runs a single `swiftc` invocation over all the project's Swift files, linki
 5. Pair the Siri Remote via **System Settings → Bluetooth** if it isn't already paired
 6. Use the menu-bar walkie-talkie glyph to access Button Mappings and Swipe Gestures
 
-> ⚠️ **Important:** You must explicitly add **HyperVibe.app** to **System Settings → Privacy & Security → Input Monitoring** (click the **+** button and select the app). Without this, HyperVibe may not properly intercept HID events/media keys, which means vol up and down buttons and play/pause buttons will trigger volume change and triggering of Apple Music.
+> ⚠️ **Important:** You must explicitly add **Baton.app** to **System Settings → Privacy & Security → Input Monitoring** (click the **+** button and select the app). Without this, Baton may not properly intercept HID events/media keys, which means vol up and down buttons and play/pause buttons will trigger volume change and triggering of Apple Music.
 
-A diagnostic log is written to `/tmp/hypervibe.log` (NSLog is redacted under hardened runtime, so HyperVibe uses file-based logging).
+A diagnostic log is written to `/tmp/baton.log` (NSLog is redacted under hardened runtime, so Baton uses file-based logging).
 
 ---
 
@@ -157,7 +157,7 @@ This is the standard reverse-engineered technique (originally surfaced in projec
 
 ### Long-term direction: Xbox Adaptive Joystick
 
-Between the private `MultitouchSupport` framework and the undocumented `NX_SYSDEFINED` plumbing, the Siri Remote path is built on two proprietary, reverse-engineered interfaces that Apple can break at any time. HyperVibe may migrate its primary input to the **Xbox Adaptive Joystick**, which speaks standard USB HID / GameController.framework and avoids every proprietary hazard above. That gives a more permanent, App Store–viable foundation — and, as a bonus, a genuinely accessible input device — while the Siri Remote support remains as a best-effort path for users who already own one.
+Between the private `MultitouchSupport` framework and the undocumented `NX_SYSDEFINED` plumbing, the Siri Remote path is built on two proprietary, reverse-engineered interfaces that Apple can break at any time. Baton may migrate its primary input to the **Xbox Adaptive Joystick**, which speaks standard USB HID / GameController.framework and avoids every proprietary hazard above. That gives a more permanent, App Store–viable foundation — and, as a bonus, a genuinely accessible input device — while the Siri Remote support remains as a best-effort path for users who already own one.
 - Tested on **Siri Remote 1st-gen (A1513, product ID `0x266`)**. Button HID codes are a superset likely to cover the 2nd-gen Siri Remote (A2540) as well, but its click-ring directional presses and dedicated Mute button are not yet mapped in `identifyButton`.
 - Ad-hoc signing ties TCC permission grants to the exact binary hash — rebuilds may require re-approval in System Settings.
 
@@ -165,7 +165,7 @@ Between the private `MultitouchSupport` framework and the undocumented `NX_SYSDE
 
 ## Credits
 
- **Fork & improvements.** HyperVibe is built on top of [Remotastic](https://github.com/lauschue/Remotastic) by [@lauschue](https://github.com/lauschue), which provided the foundational Siri-Remote HID handling, MultitouchSupport integration, and menu-bar scaffolding. HyperVibe extends it with configurable Claude Code workflows, keyboard shortcuts, push-to-talk and swipe gesture.
+ **Fork & improvements.** Baton is built on top of [Remotastic](https://github.com/lauschue/Remotastic) by [@lauschue](https://github.com/lauschue), which provided the foundational Siri-Remote HID handling, MultitouchSupport integration, and menu-bar scaffolding. Baton extends it with configurable Claude Code workflows, keyboard shortcuts, push-to-talk and swipe gesture.
 - Icons from [The Noun Project](https://thenounproject.com/):
   - [Arrow Up by Dayeong Kim](https://thenounproject.com/icon/arrow-up-6066125/)
   - [Microphone by Alvida](https://thenounproject.com/icon/microphone-8162320/)

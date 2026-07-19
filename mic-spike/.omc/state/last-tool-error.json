@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"B=/private/tmp/sysdiagnose_2026.07.18_03-36-01+0800_macOS_Mac_25F84; log show --archive \\\"$B/system_logs.logarchive\\\" --last 5m 2>&1 | head -5; echo ===; log show --archive \\\"$B/system_log...",
+  "error": "Exit code 1\n(eval):log:1: too many arguments\n(eval):1: == not found",
+  "timestamp": "2026-07-17T19:40:27.638Z",
+  "retry_count": 2
+}

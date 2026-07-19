@@ -1,6 +1,6 @@
 //
 //  RemoteInputHandler.swift
-//  HyperVibe
+//  Baton
 //
 //  Processes HID input events from Siri Remote
 //
@@ -144,7 +144,7 @@ class RemoteInputHandler {
             isDragging = false
             selectPressTime = mach_absolute_time()
             cursorController.isClickActive = true
-            
+
             // Start drag after threshold
             DispatchQueue.main.asyncAfter(deadline: .now() + clickThreshold) { [weak self] in
                 guard let self = self, self.isSelectPressed && !self.isDragging else { return }
@@ -214,7 +214,128 @@ class RemoteInputHandler {
     }
     
     // MARK: - Action Execution
-    
+
+    // MARK: - Gyro cursor (gen 1): hold select, rotate the remote to drag
+
+    /// Raw gyro units → cursor px/s. Tuned by feel; waving the remote reads
+    /// in the hundreds, so 2.5 gives ~1000px/s on a fast wrist flick.
+    /// Adjustable live from the settings window via applyGyroSettings.
+    private var gyroGain: Double = 2.5
+    /// Noise floor after smoothing — enter motion above this, keep moving until
+    /// the signal drops under the still band below (hysteresis).
+    private let gyroDeadzone: Double = 8
+    /// All three axes under this for a few samples = remote is being held still:
+    /// freeze the cursor and re-learn the gyro bias (kills rest jitter + drift).
+    private let gyroStillBand: Int16 = 12
+    /// One Euro filter per axis: speed-adaptive smoothing — heavy filtering at
+    /// tremor speeds, nearly none on fast swings. minCutoff = smoothing at rest
+    /// (lower = smoother), beta = how fast the filter opens up with speed.
+    private struct OneEuro {
+        var minCutoff = 0.8
+        var beta = 0.005
+        private var xPrev: Double?
+        private var dxPrev = 0.0
+        init(minCutoff: Double = 0.8, beta: Double = 0.005) {
+            self.minCutoff = minCutoff
+            self.beta = beta
+        }
+        mutating func filter(_ x: Double, dt: Double) -> Double {
+            let dx = xPrev.map { (x - $0) / dt } ?? 0
+            let aD = alpha(cutoff: 1.0, dt: dt)
+            let dxHat = dxPrev + aD * (dx - dxPrev)
+            let cutoff = minCutoff + beta * abs(dxHat)
+            let a = alpha(cutoff: cutoff, dt: dt)
+            let base = xPrev ?? x
+            let xHat = base + a * (x - base)
+            xPrev = xHat
+            dxPrev = dxHat
+            return xHat
+        }
+        mutating func reset() { xPrev = nil; dxPrev = 0 }
+        private func alpha(cutoff: Double, dt: Double) -> Double {
+            let tau = 1.0 / (2 * .pi * cutoff)
+            return 1.0 / (1.0 + tau / dt)
+        }
+    }
+    /// Gyro stays silent for this long after select goes down — the press
+    /// itself jolts the remote and would otherwise shift the drag start point.
+    private let gyroActivationDelay: Double = 0.35
+    private var lastGyroTime: UInt64 = 0
+    private var gyroBias = (x: 0.0, y: 0.0, z: 0.0)
+    private var gyroStillSamples = 0
+    private var gyroFilterX = OneEuro()
+    private var gyroFilterY = OneEuro()
+
+    /// Live-apply settings-window changes: new gain + One Euro smoothing strength.
+    /// Filters reset so a parameter jump doesn't leave residual smoothed output.
+    func applyGyroSettings(gain: Double, minCutoff: Double) {
+        gyroGain = gain
+        gyroFilterX.minCutoff = minCutoff
+        gyroFilterY.minCutoff = minCutoff
+        gyroFilterX.reset()
+        gyroFilterY.reset()
+    }
+
+    /// Called from MotionCapture's IOHID callback thread at ~50-90Hz.
+    /// Only moves the cursor while select is held (drag mode).
+    /// Axis mapping (wand-style hold, buttons up; verified by feel):
+    /// yaw = -Z, pitch = -X.
+    func handleGyro(x: Int16, y: Int16, z: Int16) {
+        guard isSelectPressed else {
+            lastGyroTime = 0
+            gyroStillSamples = 0
+            gyroFilterX.reset()
+            gyroFilterY.reset()
+            return
+        }
+
+        // Activation grace period: swallow the press jolt so the drag start
+        // point stays where the user pressed.
+        let heldFor = Double(mach_absolute_time() - selectPressTime)
+            * Double(machTimebase.numer) / Double(machTimebase.denom) / 1e9
+        guard heldFor > gyroActivationDelay else {
+            lastGyroTime = 0
+            return
+        }
+
+        // Stationary detection: freeze + update bias estimate, skip output.
+        if abs(x) < gyroStillBand && abs(y) < gyroStillBand && abs(z) < gyroStillBand {
+            gyroStillSamples += 1
+            if gyroStillSamples > 10 {
+                gyroBias.x = gyroBias.x * 0.95 + Double(x) * 0.05
+                gyroBias.y = gyroBias.y * 0.95 + Double(y) * 0.05
+                gyroBias.z = gyroBias.z * 0.95 + Double(z) * 0.05
+                gyroFilterX.reset()
+                gyroFilterY.reset()
+            }
+            lastGyroTime = 0
+            return
+        }
+        gyroStillSamples = 0
+
+        let now = mach_absolute_time()
+        defer { lastGyroTime = now }
+        guard lastGyroTime != 0 else { return } // drop first sample (no dt)
+        var dt = Double(now - lastGyroTime) * Double(machTimebase.numer) / Double(machTimebase.denom) / 1e9
+        dt = min(max(dt, 0.001), 0.1)
+
+        // Bias-subtract, One-Euro smooth, deadzone, then integrate to cursor delta.
+        let rawX = -(Double(z) - gyroBias.z)
+        let rawY = -(Double(x) - gyroBias.x)
+        let smoothX = gyroFilterX.filter(rawX, dt: dt)
+        let smoothY = gyroFilterY.filter(rawY, dt: dt)
+        let dx = abs(smoothX) < gyroDeadzone ? 0 : smoothX * gyroGain * dt
+        let dy = abs(smoothY) < gyroDeadzone ? 0 : smoothY * gyroGain * dt
+        guard dx != 0 || dy != 0 else { return }
+        _ = cursorController.moveCursor(deltaX: CGFloat(dx), deltaY: CGFloat(dy))
+    }
+
+    private let machTimebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
     private func executeAction(_ action: ButtonAction, button: String, pressed: Bool) {
         if action.requiresHold {
             handleHoldAction(action, button: button, pressed: pressed)
@@ -239,6 +360,16 @@ class RemoteInputHandler {
             break // handled by handleHoldAction
         case .trackpadClick:
             cursorController.performClick()
+        case .customText:
+            if let text = menuBarManager?.customText(forButton: button) {
+                menuBarManager?.executeCustomText(text)
+            }
+        case .customKey:
+            if let combo = menuBarManager?.customKeyCombo(forButton: button),
+               let keyCode = combo["keyCode"] as? Int,
+               let modifiers = combo["modifiers"] as? [String] {
+                menuBarManager?.executeCustomKey(keyCode: keyCode, modifiers: modifiers)
+            }
         }
     }
 

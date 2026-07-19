@@ -5,14 +5,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "HyperVibe",
+    name: "Baton",
     platforms: [.macOS(.v11)],
     products: [
-        .executable(name: "HyperVibe", targets: ["HyperVibe"])
+        .executable(name: "Baton", targets: ["Baton"])
     ],
     targets: [
         .executableTarget(
-            name: "HyperVibe",
+            name: "Baton",
             path: ".",
             sources: [
                 "main.swift",
@@ -24,14 +24,18 @@ let package = Package(
                 "MediaController.swift",
                 "MediaKeyInterceptor.swift",
                 "TouchHandler.swift",
-                "SystemVolume.swift"
+                "SystemVolume.swift",
+                "AudioProbe.swift",
+                "BleAudioProbe.swift",
+                "SettingsWindowController.swift"
             ],
             linkerSettings: [
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("Carbon"),
-                .linkedFramework("AppKit")
+                .linkedFramework("AppKit"),
+                .linkedFramework("WebKit")
             ]
         )
     ]

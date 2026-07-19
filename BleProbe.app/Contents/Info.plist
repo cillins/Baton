@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>BleProbe</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.hypervibe.bleprobe</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>BleProbe</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>BleProbe 需要蓝牙权限来枚举 Siri Remote 的 GATT 服务。</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>BleProbe 需要蓝牙权限来枚举 Siri Remote 的 GATT 服务。</string>
+</dict>
+</plist>

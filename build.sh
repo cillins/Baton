@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Build script for HyperVibe
+# Build script for Baton
 # Make sure Xcode Command Line Tools are installed: xcode-select --install
 
 set -e
 
-echo "Building HyperVibe..."
+echo "Building Baton..."
 
 SWIFT_FILES=(
     "main.swift"
@@ -18,6 +18,12 @@ SWIFT_FILES=(
     "MediaKeyInterceptor.swift"
     "TouchHandler.swift"
     "SystemVolume.swift"
+    "AudioProbe.swift"
+    "BleAudioProbe.swift"
+    "BleBatteryMonitor.swift"
+    "SettingsWindowController.swift"
+    "MotionProbe.swift"
+    "MotionCapture.swift"
 )
 
 # Find SDK path
@@ -42,18 +48,25 @@ fi
 echo "Building for: $TARGET"
 
 # Build
+# Note: -F /System/Library/PrivateFrameworks is passed only to the linker via -Xlinker
+# because exposing private frameworks to the compiler breaks WebKit's transitive
+# Network module build (private Network.framework headers don't match the public module).
+# MultitouchSupport's headers are imported via the local SiriRemote-Bridging-Header.h,
+# so the compiler doesn't need to see the framework - only the linker does.
 swiftc \
     -sdk "$SDK_PATH" \
     -target "$TARGET" \
-    -o HyperVibe \
+    -o Baton \
     "${SWIFT_FILES[@]}" \
     -import-objc-header SiriRemote-Bridging-Header.h \
-    -F /System/Library/PrivateFrameworks \
+    -Xlinker -F -Xlinker /System/Library/PrivateFrameworks \
     -framework IOKit \
     -framework CoreGraphics \
     -framework AudioToolbox \
     -framework Carbon \
     -framework AppKit \
+    -framework WebKit \
+    -framework GameController \
     -framework MultitouchSupport
 
 if [ $? -eq 0 ]; then
@@ -64,7 +77,7 @@ if [ $? -eq 0 ]; then
     echo "  ./create_app_bundle.sh"
     echo ""
     echo "Or run directly with:"
-    echo "  ./HyperVibe"
+    echo "  ./Baton"
 else
     echo ""
     echo "✗ Build failed!"

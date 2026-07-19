@@ -1,0 +1,681 @@
+:root {
+  --bg: #ffffff;
+  --surface: #f5f5f7;
+  --surface-warm: #fbfbfd;
+  --fg: #1d1d1f;
+  --fg-2: #424245;
+  --muted: #6e6e73;
+  --meta: #86868b;
+  --border: #d2d2d7;
+  --border-soft: #e8e8ed;
+  --accent: #0071e3;
+  --accent-on: #ffffff;
+  --accent-hover: #0077ed;
+  --accent-active: #0066cc;
+  --success: #16a34a;
+  --warn:    #eab308;
+  --danger:  #dc2626;
+  --font-display:
+    "SF Pro Display", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-body:
+    "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono:
+    "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 17px;
+  --text-lg:   21px;
+  --text-xl:   28px;
+  --text-2xl:  40px;
+  --text-3xl:  56px;
+  --text-4xl:  80px;
+  --leading-body:  1.47;
+  --leading-tight: 1.05;
+  --tracking-display: -0.015em;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --section-y-desktop: 100px;
+  --section-y-tablet:  64px;
+  --section-y-phone:   40px;
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   18px;
+  --radius-pill: 980px;
+  --elev-flat:   none;
+  --elev-ring:   0 0 0 1px var(--border);
+  --elev-raised: 0 12px 32px rgba(0, 0, 0, 0.08);
+  --shadow-card:    0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --shadow-popover: 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-toast:   0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --shadow-btn:     0 2px 10px rgba(0, 0, 0, 0.08);
+  --shadow-window:  0 28px 80px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.06);
+  --focus-ring: 0 0 0 4px color-mix(in oklab, var(--accent), transparent 65%);
+  --motion-fast:   150ms;
+  --motion-base:   220ms;
+  --ease-standard: cubic-bezier(0.28, 0, 0.22, 1);
+  --container-max:            1024px;
+  --container-gutter-desktop: 22px;
+  --container-gutter-tablet:  18px;
+  --container-gutter-phone:   16px;
+  color-scheme: light;
+}
+
+/* ─── 暗色模式（macOS Dark） ────────────────────────────────────────
+ * Apple 同源 token 双套：仅复用现有 token 名，复用 DESIGN.md §2 已记录
+ * 的 Graphite 表面阶（#272729/#262629/#28282b/#2a2a2c）和 High-Luminance
+ * Link Blue (#2997ff)。选中态按 macOS 系统色映射。
+ * 触发：documentElement.dataset.appearance === "dark"，或 auto 模式下
+ * 系统 prefers-color-scheme: dark。 */
+:root[data-appearance="dark"] {
+  --bg: #1d1d1f;
+  --surface: #000000;
+  --surface-warm: #151516;
+  --fg: #f5f5f7;
+  --fg-2: #d2d2d7;
+  --muted: #a1a1a6;
+  --meta: #86868b;
+  --border: #38383a;
+  --border-soft: #2c2c2e;
+  --accent: #2997ff;
+  --accent-on: #ffffff;
+  --accent-hover: #47a8ff;
+  --accent-active: #0a84ff;
+  --success: #30d158;
+  --warn:    #ffd60a;
+  --danger:  #ff453a;
+  --elev-raised: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --shadow-card:    0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+  --shadow-popover: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-toast:   0 1px 3px rgba(0, 0, 0, 0.45), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+  --shadow-btn:     0 2px 10px rgba(0, 0, 0, 0.4);
+  --shadow-window:  0 28px 80px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.3);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-appearance="auto"] {
+    --bg: #1d1d1f;
+    --surface: #000000;
+    --surface-warm: #151516;
+    --fg: #f5f5f7;
+    --fg-2: #d2d2d7;
+    --muted: #a1a1a6;
+    --meta: #86868b;
+    --border: #38383a;
+    --border-soft: #2c2c2e;
+    --accent: #2997ff;
+    --accent-on: #ffffff;
+    --accent-hover: #47a8ff;
+    --accent-active: #0a84ff;
+    --success: #30d158;
+    --warn:    #ffd60a;
+    --danger:  #ff453a;
+    --elev-raised: 0 12px 32px rgba(0, 0, 0, 0.5);
+    --shadow-card:    0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+    --shadow-popover: 0 1px 3px rgba(0, 0, 0, 0.5);
+    --shadow-toast:   0 1px 3px rgba(0, 0, 0, 0.45), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+    --shadow-btn:     0 2px 10px rgba(0, 0, 0, 0.4);
+    --shadow-window:  0 28px 80px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.3);
+    color-scheme: dark;
+  }
+}
+
+/* 暗色下侧栏贴近窗口底色 (#1d1d1f)，与详情区纯黑 #000000 拉开层级；
+ * 沿用 :root token，不新增颜色，仅切换 sidebar 背景令牌。 */
+:root[data-appearance="dark"] .sidebar { background: var(--bg); }
+@media (prefers-color-scheme: dark) {
+  :root[data-appearance="auto"] .sidebar { background: var(--bg); }
+}
+
+/* ─── base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fg);
+  background: var(--surface);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+button { font: inherit; cursor: pointer; color: inherit; }
+select { font: inherit; color: var(--fg); }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+[hidden] { display: none !important; }
+svg { display: block; }
+
+/* ─── app root: fills the WKWebView, sidebar + detail side by side ─── */
+.app-root {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+/* ─── macOS menu bar ───────────────────────────────────────────────── */
+.menubar {
+  height: 30px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px;
+  background: color-mix(in oklab, var(--bg) 80%, transparent);
+  backdrop-filter: blur(22px) saturate(1.7);
+  -webkit-backdrop-filter: blur(22px) saturate(1.7);
+  border-bottom: 1px solid var(--border-soft);
+  position: relative; z-index: 40;
+  color: var(--fg);
+}
+.mb-left, .mb-right { display: flex; align-items: center; gap: 4px; }
+.mb-left svg { width: 14px; height: 14px; fill: var(--fg); margin-right: 6px; }
+.mb-app { font-weight: 700; padding: 0 8px; }
+.mb-menu { padding: 2px 8px; border-radius: 5px; color: var(--fg-2); }
+.mb-menu:hover { background: color-mix(in oklab, var(--fg) 8%, transparent); }
+.mb-right { gap: 2px; }
+.mb-sys { display: flex; align-items: center; gap: 6px; padding: 2px 7px; color: var(--fg-2); }
+.mb-sys svg { width: 15px; height: 15px; }
+.mb-clock { padding: 2px 6px; color: var(--fg); font-variant-numeric: tabular-nums; }
+.mb-icon {
+  display: flex; align-items: center; gap: 5px;
+  height: 22px; padding: 0 8px;
+  border: 0; border-radius: 5px; background: transparent;
+}
+.mb-icon svg { width: 13px; height: 13px; }
+.mb-icon .mb-batt-pct { font-size: 11px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.mb-icon:hover { background: color-mix(in oklab, var(--fg) 8%, transparent); }
+.mb-icon.open { background: var(--accent); color: var(--accent-on); }
+.mb-icon.open .mb-batt-pct { color: var(--accent-on); }
+
+/* ─── menu bar popover ─────────────────────────────────────────────── */
+.popover {
+  position: absolute; top: 36px; right: 64px; z-index: 50;
+  width: 308px;
+  background: color-mix(in oklab, var(--bg) 86%, transparent);
+  backdrop-filter: blur(34px) saturate(1.8);
+  -webkit-backdrop-filter: blur(34px) saturate(1.8);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-raised), var(--shadow-btn);
+  padding: var(--space-2);
+  animation: pv-in var(--motion-base) var(--ease-standard);
+}
+@keyframes pv-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.pv-head { padding: 8px 10px 6px; }
+.pv-title { font-size: 13px; font-weight: 700; }
+.pv-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.pv-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 8px 10px;
+  border: 0; border-radius: var(--radius-sm); background: transparent;
+  text-align: left;
+}
+.pv-row:hover { background: color-mix(in oklab, var(--fg) 6%, transparent); }
+.pv-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot-ok { background: var(--success); }
+.dot-warn { background: var(--warn); }
+.dot-off { background: var(--meta); }
+.pv-name { flex: 1; min-width: 0; }
+.pv-name b { display: block; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-name span { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pv-sep { height: 1px; background: var(--border-soft); margin: 6px 8px; }
+.pv-foot { display: flex; gap: 6px; padding: 4px 2px 2px; }
+.pv-btn {
+  flex: 1; padding: 5px 0; font-size: 12px;
+  border: 0; border-radius: 7px;
+  background: color-mix(in oklab, var(--fg) 6%, transparent);
+  color: var(--fg);
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.pv-btn:hover { background: color-mix(in oklab, var(--fg) 11%, transparent); }
+.pv-switch-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; font-size: 12px; }
+.pv-seg {
+  display: inline-flex; gap: 1px;
+  margin: 0; padding: 1px;
+  background: color-mix(in oklab, var(--fg) 8%, transparent);
+  border-radius: 7px;
+}
+.pv-seg button {
+  border: 0; background: transparent;
+  padding: 2px 8px; border-radius: 6px;
+  font-size: 11px; color: var(--fg-2); cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
+}
+.pv-seg button:hover { color: var(--fg); }
+.pv-seg button.on {
+  background: var(--bg); color: var(--fg); font-weight: 600;
+  box-shadow: var(--shadow-card);
+}
+
+/* ─── app window ───────────────────────────────────────────────────── */
+/* NSWindow provides the window chrome (border, shadow, traffic lights).
+   .window-frame is just a flex column that fills the WKWebView: titlebar on
+   top, body below. The titlebar is draggable via -webkit-app-region. */
+.window-frame {
+  flex: 1;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
+}
+.window.flash { box-shadow: var(--shadow-window), var(--focus-ring); }
+
+.titlebar {
+  height: 46px; flex: none;
+  display: flex; align-items: center; gap: 10px;
+  /* Reserve space on the left for the NSWindow traffic lights (close/min/zoom).
+     They float over our content at ~12px from left, ~14px diameter each, ~8px gap. */
+  padding: 0 14px 0 78px;
+  background: var(--surface-warm);
+  border-bottom: 1px solid var(--border-soft);
+  /* Drag-handling lives in Swift (WindowContainerView/TitleDragOverlay) since
+     WKWebView + fullSizeContentView swallows -webkit-app-region: drag events.
+     Kept here as a no-op fallback for browser dev mode. */
+  -webkit-app-region: drag;
+}
+.wt-title {
+  font-weight: 600; color: var(--fg-2); pointer-events: none;
+  position: absolute; left: 50%; transform: translateX(-50%);
+}
+.titlebar { position: relative; }
+.wt-actions { margin-left: auto; display: flex; gap: 6px; -webkit-app-region: no-drag; }
+.wt-btn {
+  display: flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 10px;
+  border: 1px solid var(--border-soft); border-radius: 7px;
+  background: var(--bg); color: var(--fg-2);
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+  transition: border-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.wt-btn svg { width: 13px; height: 13px; }
+.wt-btn:hover { border-color: var(--meta); color: var(--fg); }
+.wt-btn.on { border-color: color-mix(in oklab, var(--accent) 40%, var(--border-soft)); background: color-mix(in oklab, var(--accent) 10%, transparent); color: var(--accent-active); }
+
+.window-body { flex: 1; display: flex; min-height: 0; }
+
+/* ─── sidebar ──────────────────────────────────────────────────────── */
+.sidebar {
+  width: 238px; flex: none;
+  background: var(--surface);
+  border-right: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-2);
+  display: flex; flex-direction: column;
+  overflow: auto;
+}
+.sb-label {
+  font-size: 11px; font-weight: 700; color: var(--meta);
+  padding: 4px 10px 6px; letter-spacing: 0.02em;
+}
+.sb-list { display: flex; flex-direction: column; gap: 2px; }
+.sb-device {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 8px 10px;
+  border: 0; border-radius: var(--radius-sm); background: transparent;
+  text-align: left;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.sb-device:hover { background: color-mix(in oklab, var(--fg) 5%, transparent); }
+.sb-device.on { background: color-mix(in oklab, var(--accent) 13%, transparent); }
+.sb-device.on .sb-name { color: var(--accent-active); }
+.sb-ricon {
+  flex: none; width: 16px;
+  display: grid; place-items: center;
+}
+.sb-ricon svg { width: 12px; height: auto; }
+.sb-meta { flex: 1; min-width: 0; }
+.sb-name { display: block; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sb-status { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.sb-status .pv-dot { width: 6px; height: 6px; }
+.sb-foot { margin-top: auto; padding-top: var(--space-3); }
+.sb-add {
+  display: flex; align-items: center; gap: 7px;
+  width: 100%; padding: 8px 10px;
+  border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--accent); font-size: 13px; font-weight: 500;
+  text-align: left;
+}
+.sb-add svg { width: 12px; height: 12px; }
+.sb-add:hover { background: color-mix(in oklab, var(--fg) 5%, transparent); }
+
+.kbd-row { display: inline-flex; align-items: center; gap: 4px; }
+.kbd-row kbd {
+  display: inline-block;
+  min-width: 18px; padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11px; line-height: 1;
+  color: var(--fg-2);
+  text-align: center;
+}
+
+/* ─── detail ───────────────────────────────────────────────────────── */
+.detail { flex: 1; min-width: 0; overflow: hidden; padding: 0; background: var(--surface); display: flex; gap: 0; align-items: stretch; }
+.detail-body { flex: 1; min-width: 0; padding: 22px 26px 30px; overflow: auto; }
+.detail-art { flex: none; width: 200px; align-self: stretch; padding: 22px 22px 30px; display: flex; align-items: center; justify-content: center; }
+.detail-art svg { width: 100%; height: auto; display: block; }
+.detail-head { display: flex; align-items: center; gap: 16px; }
+.dh-art {
+  flex: none; width: 34px;
+  display: grid; place-items: center;
+}
+.dh-art svg { height: 84px; width: auto; }
+.dh-text { flex: 1; min-width: 0; }
+.dh-name {
+  margin: 0; font-family: var(--font-display);
+  font-size: 20px; font-weight: 700; letter-spacing: var(--tracking-display);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dh-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+/* Battery indicator shown next to device name: SVG shell + fill bar + tip, then %.
+   Fill color flips to --warn when below 20%. */
+.batt-ind { display: inline-flex; align-items: center; gap: 6px; }
+.batt-ind svg { display: block; }
+.batt-ind .batt-shell { fill: none; stroke: currentColor; stroke-width: 1.4; opacity: 0.85; }
+.batt-ind .batt-fill  { fill: var(--meta); transition: fill var(--motion-fast) var(--ease-standard); }
+.batt-ind .batt-tip   { fill: currentColor; opacity: 0.85; }
+.batt-ind[data-level="ok"]   .batt-fill { fill: var(--success); }
+.batt-ind[data-level="warn"] .batt-fill { fill: var(--warn); }
+.batt-ind .batt-pct   { font-variant-numeric: tabular-nums; }
+.dh-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0;
+  background: transparent; color: var(--fg-2);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  transition: border-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.icon-btn:hover { border-color: var(--meta); color: var(--fg); }
+.icon-btn svg { width: 15px; height: 15px; }
+.abtn {
+  flex: none; padding: 6px 16px;
+  border: 0; border-radius: var(--radius-sm);
+  background: var(--accent); color: var(--accent-on);
+  font-size: 13px; font-weight: 500;
+  transition: background var(--motion-fast) var(--ease-standard), transform 0.05s ease;
+}
+.abtn:hover { background: var(--accent-hover); }
+.abtn:active { background: var(--accent-active); transform: scale(0.97); }
+.abtn:disabled { opacity: 0.55; cursor: default; transform: none; }
+.abtn-ghost {
+  background: transparent; color: var(--accent);
+  border: 1px solid var(--border);
+}
+.abtn-ghost:hover { background: color-mix(in oklab, var(--accent) 7%, transparent); border-color: var(--accent); }
+.abtn:disabled { opacity: 0.45; pointer-events: none; }
+
+/* mapping profiles */
+.kv .map-sel { flex: none; width: 168px; }
+.prof-edit { display: inline-flex; align-items: center; gap: 6px; }
+.prof-input {
+  width: 140px; padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--fg); font-size: 13px;
+  transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+}
+.prof-input:hover { border-color: var(--meta); }
+.prof-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+
+/* Profile list (in-page) — each row shows the profile name + 编辑 / 重置 /
+   删除 actions; the mapping editor lives in ProfileEditModal. */
+.prof-list { display: flex; flex-direction: column; }
+.prof-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 2px;
+}
+.prof-row + .prof-row { border-top: 1px solid var(--border-soft); }
+.prof-name {
+  flex: 1; min-width: 0;
+  font-weight: 600; font-size: 13px; color: var(--fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.prof-active { color: var(--accent-active); font-weight: 500; font-size: 12px; }
+.prof-row-actions { display: flex; gap: 2px; flex: none; }
+.prof-icon-btn {
+  border: 0; background: transparent;
+  color: var(--accent); font-size: 12px;
+  padding: 4px 10px; border-radius: var(--radius-sm);
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.prof-icon-btn:hover { background: color-mix(in oklab, var(--accent) 7%, transparent); }
+.prof-icon-btn.danger { color: var(--danger); }
+.prof-icon-btn.danger:hover { background: color-mix(in oklab, var(--danger) 7%, transparent); }
+.prof-icon-btn:disabled { color: var(--meta); cursor: default; pointer-events: none; }
+
+/* Profile edit modal — header has editable name input + close X; body hosts
+   the 按键自定义 + 触控板手势 mapping rows (re-using existing .group / .map-*).
+   Backdrop is transparent (covers the page for click-outside-to-close + Esc
+   handling, but no dim/blur so the underlying window stays fully visible). */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  display: grid; place-items: center;
+  background: transparent;
+  animation: modal-fade var(--motion-base) var(--ease-standard);
+}
+.modal {
+  width: min(560px, 92vw);
+  max-height: 84vh;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  animation: modal-pop var(--motion-base) var(--ease-standard);
+}
+@keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+.modal-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.modal-head-name {
+  flex: 1; min-width: 0;
+  padding: 7px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--fg);
+  font-family: var(--font-display);
+  font-size: 15px; font-weight: 600;
+  letter-spacing: var(--tracking-display);
+  transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+}
+.modal-head-name:hover { border-color: var(--meta); }
+.modal-head-name:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.modal-head-name:disabled { opacity: 1; color: var(--fg-2); background: transparent; border-color: transparent; padding-left: 0; cursor: default; }
+.modal-close {
+  flex: none;
+  width: 28px; height: 28px; padding: 0;
+  display: grid; place-items: center;
+  border: 0; border-radius: 50%;
+  background: transparent; color: var(--muted);
+  font-size: 18px; line-height: 1;
+  transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.modal-close:hover { background: color-mix(in oklab, var(--fg) 8%, transparent); color: var(--fg); }
+.modal-body {
+  flex: 1; min-height: 0;
+  overflow: auto;
+  padding: 16px 22px 22px;
+}
+.modal-body .group-label { margin: 12px 2px 8px; font-size: 12px; }
+.modal-body .group-label:first-child { margin-top: 0; }
+.modal-body .group { padding: 12px 14px; }
+
+.alert {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 16px; padding: 10px 14px;
+  background: color-mix(in oklab, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warn) 38%, transparent);
+  border-radius: var(--radius-md);
+  font-size: 12px; color: var(--fg-2);
+}
+.alert svg { flex: none; width: 15px; height: 15px; color: var(--warn); }
+.alert b { color: var(--fg); }
+
+.seg {
+  display: inline-flex; gap: 2px;
+  margin-top: 18px; padding: 2px;
+  background: var(--surface); border: 1px solid var(--border-soft);
+  border-radius: 10px;
+}
+.seg button {
+  border: 0; background: transparent;
+  padding: 5px 16px; border-radius: 8px;
+  font-size: 13px; color: var(--fg-2);
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+.seg button.on {
+  background: var(--bg); color: var(--fg); font-weight: 600;
+  box-shadow: var(--shadow-card);
+}
+
+.pane { margin-top: 16px; }
+.group-label {
+  margin: 18px 4px 6px;
+  font-size: 12px; font-weight: 600; color: var(--fg-2);
+}
+.pane > .group-label:first-child { margin-top: 0; }
+.group {
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+.batt-flex { display: flex; align-items: center; gap: 16px; }
+.ring { width: 76px; height: 76px; flex: none; }
+.ring circle { fill: none; stroke-width: 6; }
+.ring .track { stroke: var(--border); }
+.ring .prog { stroke-linecap: round; transform: rotate(-90deg); transform-origin: center; transition: stroke-dashoffset 0.6s var(--ease-standard), stroke 0.3s; }
+.prog-ok { stroke: var(--success); }
+.prog-warn { stroke: var(--warn); }
+.batt-num { font-family: var(--font-display); font-size: 30px; font-weight: 700; letter-spacing: var(--tracking-display); line-height: 1; }
+.batt-num small { font-size: 16px; font-weight: 600; color: var(--muted); }
+.batt-note { font-size: 12px; color: var(--muted); margin-top: 5px; }
+.kv { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; font-size: 13px; }
+.kv + .kv { border-top: 1px solid var(--border-soft); }
+.kv .k { color: var(--muted); flex: none; }
+.kv .v { text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv .v.ok { color: var(--success); font-weight: 600; }
+.kv .v.off { color: var(--meta); }
+.card-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+
+/* macOS switch */
+.sw {
+  flex: none; width: 38px; height: 23px;
+  border: 0; border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--fg) 20%, transparent);
+  position: relative; padding: 0;
+  transition: background var(--motion-base) var(--ease-standard);
+}
+.sw::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 19px; height: 19px; border-radius: 50%;
+  background: var(--bg);
+  box-shadow: var(--shadow-popover);
+  transition: transform var(--motion-base) var(--ease-standard);
+}
+.sw.on { background: var(--success); }
+.sw.on::after { transform: translateX(15px); }
+.sw.sm { width: 32px; height: 20px; }
+.sw.sm::after { width: 16px; height: 16px; }
+.sw.sm.on::after { transform: translateX(12px); }
+
+/* button mapping */
+.map-head, .map-row {
+  display: grid; grid-template-columns: 1.2fr 0.8fr 1fr;
+  gap: 14px; align-items: center;
+}
+.map-head {
+  font-size: 12px; font-weight: 600; color: var(--meta);
+  padding: 0 2px 8px;
+}
+.map-row { padding: 10px 2px; }
+.map-row + .map-row { border-top: 1px solid var(--border-soft); }
+.map-key { font-weight: 600; font-size: 13px; }
+.map-gesture { font-size: 12px; color: var(--muted); }
+.map-sel {
+  width: 100%; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); font-size: 13px;
+  transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+}
+.map-sel:hover { border-color: var(--meta); }
+.map-sel:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.map-note { margin-top: 14px; font-size: 12px; color: var(--muted); }
+.map-foot { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; }
+
+/* custom action editor rows (text input / key recorder) */
+.map-custom { display: flex; align-items: center; gap: 8px; padding: 0 2px 10px; }
+.map-custom .prof-input { flex: 1; }
+.map-custom .abtn { flex: none; }
+.rec-label { font-size: 13px; color: var(--muted); min-width: 64px; }
+.rec-label.has-combo { color: inherit; font-weight: 600; }
+
+/* app presets */
+.app-row { display: flex; align-items: center; gap: 12px; padding: 10px 2px; }
+.app-row + .app-row { border-top: 1px solid var(--border-soft); }
+.app-ic {
+  flex: none; width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border-radius: 7px;
+  background: color-mix(in oklab, var(--fg) 6%, transparent);
+  color: var(--fg-2);
+}
+.app-ic svg { width: 16px; height: 16px; }
+.app-name { flex: 1; font-weight: 600; font-size: 13px; }
+.app-row .map-sel { flex: none; width: 168px; }
+
+/* toast */
+.toast {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+  background: color-mix(in oklab, var(--fg) 92%, transparent);
+  color: var(--bg);
+  font-size: 12px; padding: 9px 16px;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--elev-raised);
+  animation: toast-in var(--motion-base) var(--ease-standard);
+  white-space: nowrap; max-width: 92%;
+  overflow: hidden; text-overflow: ellipsis;
+  z-index: 20;
+}
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+@media (max-width: 840px) {
+  .window { height: auto; min-height: 0; }
+  .window-body { flex-direction: column; }
+  .sidebar { width: auto; border-right: 0; border-bottom: 1px solid var(--border-soft); }
+  .sb-list { flex-direction: row; overflow-x: auto; }
+  .sb-device { width: auto; flex: none; }
+  .map-head, .map-row { grid-template-columns: 1fr; gap: 6px; }
+  .mb-menu { display: none; }
+  .popover { right: 10px; }
+  .seg { flex-wrap: wrap; }
+}
+
+/* Gyro sliders (SettingsPane) */
+.gyro-slider-ctl { display: inline-flex; align-items: center; gap: 10px; }
+.gyro-slider-ctl input[type="range"] {
+  width: 180px;
+  accent-color: var(--accent);
+}
+.gyro-slider-val { min-width: 44px; text-align: right; }
+
+/* Apps pane (per-app profiles) */
+.app-row img.app-ic-img { width: 24px; height: 24px; object-fit: contain; flex: none; }
+.app-row .app-remove { padding: 4px 10px; margin-left: 6px; font-size: 12px; }
+.app-row .app-add    { padding: 4px 14px; margin-left: auto; }
+.app-picker { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft); }

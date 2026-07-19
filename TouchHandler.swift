@@ -1,6 +1,6 @@
 //
 //  TouchHandler.swift
-//  HyperVibe
+//  Baton
 //
 //  Handles Siri Remote trackpad input using Apple's private MultitouchSupport.framework
 //
@@ -47,6 +47,9 @@ class TouchHandler {
     private var wakeObserver: NSObjectProtocol?
     
     var scrollScale: CGFloat = 150.0
+
+    /// Single-finger cursor multiplier; adjustable live from the settings window.
+    var cursorScale: CGFloat = 500.0
     
     private var lastTouchPosition: CGPoint?
     private var lastTouchCount = 0
@@ -54,7 +57,6 @@ class TouchHandler {
     private var touchStartTime: UInt64 = 0
     private var touchStartPosition: CGPoint = .zero
     
-    private let cursorScale: CGFloat = 500.0
     private let tapMaxDuration: Double = 0.22
     private let tapMaxDistance: CGFloat = 0.07
     // Swipe detection: velocity-gated single-finger flick. Distance > 35% of trackpad in < 350ms,

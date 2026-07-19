@@ -1,6 +1,6 @@
 //
 //  CursorController.swift
-//  HyperVibe
+//  Baton
 //
 //  Controls cursor movement and clicking using CGEvent
 //
