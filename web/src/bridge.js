@@ -83,6 +83,18 @@ export function setProfileMapping(profileId, target, key, action) {
   if (!handler) return
   handler.postMessage({ type: 'setProfileMapping', profileId, target, key, action })
 }
+export function resetProfile(profileId) {
+  if (!handler) return
+  handler.postMessage({ type: 'resetProfile', profileId })
+}
+export function setTrackpadMode(profileId, mode) {
+  if (!handler) return
+  handler.postMessage({ type: 'setTrackpadMode', profileId, mode })
+}
+export function requestProfileEdit(profileId) {
+  if (!handler) return
+  handler.postMessage({ type: 'requestProfileEdit', profileId })
+}
 export function addAppPreset(bundleId, appName, profileId, iconData) {
   if (!handler) return
   handler.postMessage({ type: 'addAppPreset', bundleId, appName, profileId, iconData: iconData || '' })
@@ -110,6 +122,7 @@ if (typeof window !== 'undefined') {
     setStateHandler: null,
     setAppearanceHandler: null,
     setMappingsHandler: null,
+    setEditMappingsHandler: null,
     setAvailableAppsHandler: null,
     setState(state) {
       if (this.setStateHandler) this.setStateHandler(state)
@@ -119,6 +132,9 @@ if (typeof window !== 'undefined') {
     },
     setMappings(mappings) {
       if (this.setMappingsHandler) this.setMappingsHandler(mappings)
+    },
+    setEditMappings(mappings) {
+      if (this.setEditMappingsHandler) this.setEditMappingsHandler(mappings)
     },
     setAvailableApps(apps) {
       if (this.setAvailableAppsHandler) this.setAvailableAppsHandler(apps)

@@ -19,15 +19,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var mediaKeyInterceptor: MediaKeyInterceptor?
     private var touchHandler: TouchHandler?
     private var settingsWindow: SettingsWindowController?
+    private var permissionGuide: PermissionGuideWindowController?
     private var bleBatteryMonitor: BleBatteryMonitor?
+    private var batteryMonitorStarted = false
+    private var protectedServicesStarted = false
     private let motionCapture = MotionCapture()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🚀 Baton starting...")
-
-        // Bluetooth AVRCP play/pause signals bypass cghidEventTap and reach com.apple.rcd
-        // directly, which launches Music.app. Suspend rcd for this session; restored on exit.
-        RCDControl.suspend()
 
         // Run as menu bar app (no dock icon)
         NSApp.setActivationPolicy(.accessory)
@@ -42,6 +41,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Initialize menu bar manager
         menuBarManager = MenuBarManager(statusItem: statusItem)
+        menuBarManager.mediaController = MediaController()
 
         // Wire the "打开主窗口…" menu item to show the React-based settings window.
         // Connection-state changes are pushed live to the webview via pushConnectionState.
@@ -64,9 +64,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.settingsWindow?.pushAppearance(appearance)
         }
 
-        // Check accessibility permissions
-        checkAccessibilityPermissions()
-        
         // Initialize controllers
         let cursorController = CursorController()
 
@@ -81,23 +78,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.remoteInputHandler?.applyGyroSettings(gain: self.menuBarManager.gyroGain,
                                                        minCutoff: self.menuBarManager.gyroMinCutoff)
         }
-        motionCapture.onGyro = { [weak remoteInputHandler] x, y, z in
-            remoteInputHandler?.handleGyro(x: x, y: y, z: z)
+        motionCapture.onGyro = { [weak remoteInputHandler] x, y, z, timestamp in
+            remoteInputHandler?.handleGyro(x: x, y: y, z: z, timestamp: timestamp)
         }
         
-        // Start touch handler for trackpad (before remote detection so we can wire the callback)
+        // Prepare the touch handler. It starts only after the permission guide
+        // is complete, so launching Baton never triggers competing prompts.
         touchHandler = TouchHandler(cursorController: cursorController)
         touchHandler?.scrollScale = menuBarManager.scrollSpeed.scale
         touchHandler?.cursorScale = CGFloat(menuBarManager.trackpadSensitivity)
+        touchHandler?.trackpadMode = menuBarManager.currentProfile.trackpadMode
         touchHandler?.onSwipe = { [weak menuBarManager] direction in
             menuBarManager?.executeSwipe(direction)
         }
-        touchHandler?.start()
+        menuBarManager.onTrackpadModeChange = { [weak self] mode in
+            self?.touchHandler?.trackpadMode = mode
+        }
         remoteInputHandler?.onButtonActivity = { [weak self] in
             self?.touchHandler?.tryReconnectTrackpad()
         }
         
-        // Start remote detection
+        // Prepare remote detection. Starting is deferred until permissions
+        // have been granted through the onboarding flow.
         remoteDetector = RemoteDetector { [weak self] device in
             DispatchQueue.main.async {
                 self?.remoteInputHandler?.setRemoteDevice(device)
@@ -140,7 +142,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.settingsWindow?.pushGeneration(gen)
             }
         }
-        remoteDetector?.startDetection()
+        if let remoteDetector {
+            settingsWindow?.attachRemoteDetector(remoteDetector)
+        }
 
         // Open a parallel BLE GATT connection just for the standard Battery
         // Service (0x180F) — IOHID doesn't expose battery level for Bluetooth
@@ -148,10 +152,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // to the same peripheral, so HID keeps working in parallel.
         let batteryMonitor = BleBatteryMonitor()
         bleBatteryMonitor = batteryMonitor
-        batteryMonitor.start { [weak self] level in
-            self?.remoteDetector?.currentBattery = level
-            self?.settingsWindow?.pushBattery(level)
-        }
 
         // Front-app observer — flip the active profile when a bound app becomes
         // frontmost. Skip Baton itself to avoid feedback loops.
@@ -170,21 +170,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
            front != Bundle.main.bundleIdentifier {
             menuBarManager.applyAppActivation(bundleId: front)
         }
-        
-        // Request Input Monitoring so media key tap works in both CLI and .app
-        if #available(macOS 10.15, *) {
-            if !CGPreflightListenEventAccess() {
-                CGRequestListenEventAccess()
+
+        // Decide per active mapping whether AVRCP volume should pass through.
+        // Navigation/custom actions arm the revert guard; explicit system-volume
+        // actions (plus the legacy unassigned coding/media mappings) do not.
+        VolumeRevertGuard.shared.shouldArmForRemoteButton = { [weak self] button in
+            guard let self else { return true }
+            let action = self.menuBarManager.getMapping(for: button)
+            if action == .systemVolumeUp || action == .systemVolumeDown {
+                return false
             }
+            // Preserve the existing pass-through behavior of the coding/media
+            // profiles while their volume buttons remain unassigned.
+            if action == .none,
+               ["coding", "media"].contains(self.menuBarManager.currentProfileId) {
+                return false
+            }
+            return true
         }
+        VolumeRevertGuard.shared.prewarm()
         
-        // Start media key interceptor
+        // Prepare the media-key interceptor; start after guided permissions.
         mediaKeyInterceptor = MediaKeyInterceptor()
         mediaKeyInterceptor?.onMediaKey = { [weak self] keyType in
             guard let self = self else { return false }
             return self.handleInterceptedMediaKey(keyType)
         }
-        mediaKeyInterceptor?.start()
+
+        beginPermissionFlow()
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -205,6 +218,73 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         remoteDetector?.stopDetection()
         mediaKeyInterceptor?.stop()
         RCDControl.restore()
+    }
+
+    // MARK: - Guided permissions
+
+    private func beginPermissionFlow() {
+        if PermissionGuideModel.allPermissionsGranted {
+            UserDefaults.standard.set(true, forKey: "permissionOnboardingCompletedV1")
+            startBatteryMonitorIfNeeded()
+            startProtectedServicesIfNeeded()
+            return
+        }
+
+        let guide = PermissionGuideWindowController(
+            requestBluetooth: { [weak self] in
+                self?.startBatteryMonitorIfNeeded()
+            },
+            requestAccessibility: { [weak self] in
+                self?.requestAccessibilityPermission()
+            },
+            requestInputMonitoring: {
+                _ = CGRequestListenEventAccess()
+            },
+            finish: { [weak self] in
+                self?.completePermissionOnboarding()
+            }
+        )
+        permissionGuide = guide
+        guide.show()
+    }
+
+    private func requestAccessibilityPermission() {
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        let options = [promptKey: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+    }
+
+    private func completePermissionOnboarding() {
+        guard PermissionGuideModel.allPermissionsGranted else {
+            permissionGuide?.model.refresh()
+            return
+        }
+        UserDefaults.standard.set(true, forKey: "permissionOnboardingCompletedV1")
+        startBatteryMonitorIfNeeded()
+        startProtectedServicesIfNeeded()
+        permissionGuide?.close()
+        permissionGuide = nil
+    }
+
+    private func startBatteryMonitorIfNeeded() {
+        guard !batteryMonitorStarted, let batteryMonitor = bleBatteryMonitor else { return }
+        batteryMonitorStarted = true
+        batteryMonitor.start { [weak self] level in
+            self?.remoteDetector?.currentBattery = level
+            self?.settingsWindow?.pushBattery(level)
+        }
+    }
+
+    private func startProtectedServicesIfNeeded() {
+        guard !protectedServicesStarted else { return }
+        protectedServicesStarted = true
+
+        // Bluetooth AVRCP play/pause signals bypass cghidEventTap and reach
+        // com.apple.rcd directly. Suspend it only once Baton is ready to run.
+        RCDControl.suspend()
+        touchHandler?.start()
+        remoteDetector?.startDetection()
+        mediaKeyInterceptor?.start()
     }
     
     // MARK: - Media Key Handling
@@ -249,17 +329,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Always consume — no action in this app corresponds to a system media key anymore,
         // so we never want macOS's default media handler to fire.
+        // Forward volume only when the current mapping is a real system-volume
+        // action, or in the two legacy pass-through profiles where it remains
+        // unassigned. Demo mode now maps these buttons to page navigation and
+        // must consume/revert the underlying AVRCP volume event.
+        if keyType == .volumeUp || keyType == .volumeDown {
+            if action == .systemVolumeUp || action == .systemVolumeDown {
+                return false
+            }
+            if action == .none,
+               ["coding", "media"].contains(menuBarManager.currentProfileId) {
+                return false
+            }
+        }
         return true
     }
     
-    // MARK: - Permissions
-    
-    private func checkAccessibilityPermissions() {
-        // macOS will show its own prompt when needed
-        // No need for redundant custom alert
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-    }
 }
 
 /// Suspends `com.apple.rcd` (Remote Control Daemon) for the user's GUI launchd domain while

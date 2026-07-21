@@ -74,6 +74,11 @@ final class VolumeRevertGuard {
     private var listenerInstalled = false
     private var listenerDeviceID: AudioObjectID = 0
 
+    /// Wired by the app delegate at startup. Returns true to arm the guard on a remote
+    /// volume press (revert AVRCP-driven changes), or false when that particular button
+    /// is mapped to a real system-volume action.
+    var shouldArmForRemoteButton: (String) -> Bool = { _ in true }
+
     /// Install the CoreAudio listener and capture the starting baseline at app launch,
     /// so the first remote volume press has something to revert to.
     func prewarm() {
@@ -87,7 +92,8 @@ final class VolumeRevertGuard {
     /// Called on every volume HID press from the remote. Opens the guard window and, if a
     /// volume change landed in the last `settleDelay` ms, reverts it retroactively — this
     /// handles the common case where AVRCP beats HID to the main thread.
-    func armFromRemoteButton() {
+    func armFromRemoteButton(button: String) {
+        guard shouldArmForRemoteButton(button) else { return }
         guardUntil = Date().addingTimeInterval(guardWindow)
         if pendingSettle != nil, let baselineValue = baselineVolume {
             pendingSettle?.cancel()

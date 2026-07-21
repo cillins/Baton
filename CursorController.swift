@@ -36,9 +36,17 @@ class CursorController {
     
     // Returns true if cursor is at an edge of the current screen and would be clamped
     @discardableResult
-    func moveCursor(deltaX: CGFloat, deltaY: CGFloat) -> (clampedX: Bool, clampedY: Bool) {
-        let scaledDeltaX = deltaX * sensitivity * (abs(deltaX) > 5 ? acceleration : 1.0)
-        let scaledDeltaY = deltaY * sensitivity * (abs(deltaY) > 5 ? acceleration : 1.0)
+    func moveCursor(deltaX: CGFloat, deltaY: CGFloat,
+                    applyPointerTuning: Bool = true) -> (clampedX: Bool, clampedY: Bool) {
+        // Trackpad input retains the original pointer tuning. Gyro input has
+        // already been velocity-curved and integrated, so applying this second
+        // acceleration layer would make its response discontinuous.
+        let scaledDeltaX = applyPointerTuning
+            ? deltaX * sensitivity * (abs(deltaX) > 5 ? acceleration : 1.0)
+            : deltaX
+        let scaledDeltaY = applyPointerTuning
+            ? deltaY * sensitivity * (abs(deltaY) > 5 ? acceleration : 1.0)
+            : deltaY
 
             // Get current cursor position - use CGEvent which gives us global Quartz coordinates
         // This works correctly across all displays

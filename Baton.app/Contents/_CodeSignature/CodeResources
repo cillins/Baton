@@ -8,9 +8,13 @@
 		<data>
 		FvWY5qSHZ6PZQRJdAmQcJlToXAU=
 		</data>
-		<key>Resources/web/index.html</key>
+		<key>Resources/MenuBarIcon.png</key>
 		<data>
-		jqAFqVBd2tMK2bniNEmn0cRLBa8=
+		sJGTEPoQ4ds4f8GjhoMJDXQk7JM=
+		</data>
+		<key>Resources/MenuBarIcon@2x.png</key>
+		<data>
+		2huk6dEeJPxIjvNc6zVNWRVcVVk=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -22,11 +26,18 @@
 			D2DWlWnGZ/W10CeliWdp3Hk6wL3ykeodtQgwV6HNWCI=
 			</data>
 		</dict>
-		<key>Resources/web/index.html</key>
+		<key>Resources/MenuBarIcon.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			8WJ7+2StICOvgltH8/qvgD7n+mZsFBLBZypPueWTciI=
+			HmKnkIOLkjWbkKkynNmCC1h8g92TDWvizf/ghdJktKI=
+			</data>
+		</dict>
+		<key>Resources/MenuBarIcon@2x.png</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			8dsDwOXeBo8Ge+ARAErc4led7DnljB1lD9wCahN75bY=
 			</data>
 		</dict>
 	</dict>

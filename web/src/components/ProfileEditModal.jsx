@@ -92,7 +92,7 @@ function CustomEditor({ target, row, onSetCustomText, onSetCustomKey }) {
 // (visually still in place but read-only and borderless).
 export default function ProfileEditModal({ dev, profile, mappings,
   onSetButton, onSetSwipe, onSetScrollSpeed, onSetCustomText, onSetCustomKey,
-  onRenameProfile, onClose }) {
+  onRenameProfile, onSetTrackpadMode, onClose }) {
   const gen = dev.art === 'gen1' ? '1 代' : '2/3 代'
   const [name, setName] = useState(profile?.name || '')
   const nameInputRef = useRef(null)
@@ -132,6 +132,9 @@ export default function ProfileEditModal({ dev, profile, mappings,
 
   if (!mappings || !profile) return null
 
+  // The default profile is the system baseline — view-only to prevent accidental breakage.
+  const readOnly = profile.id === 'default'
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={handleBackdropClick}>
       <div className="modal" aria-labelledby="profModalName">
@@ -156,6 +159,7 @@ export default function ProfileEditModal({ dev, profile, mappings,
           <button className="modal-close" aria-label="关闭" type="button" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
+          {readOnly && <p className="map-note" style={{margin:'0 0 8px'}}>默认配置为系统基准，仅供查看，不可修改。</p>}
           <p className="group-label">按键自定义 · {dev.name}（{gen}）</p>
           <div className="group">
             <div className="map-head"><span>按键</span><span>手势</span><span>执行操作</span></div>
@@ -168,12 +172,13 @@ export default function ProfileEditModal({ dev, profile, mappings,
                     <select
                       className="map-sel"
                       value={r.action}
+                      disabled={readOnly}
                       onChange={(e) => onSetButton(r.key, e.target.value)}
                     >
                       {r.options.map((o) => <option key={o.raw} value={o.raw}>{o.label}</option>)}
                     </select>
                   </div>
-                  <CustomEditor target="button" row={r} onSetCustomText={onSetCustomText} onSetCustomKey={onSetCustomKey} />
+                  {!readOnly && <CustomEditor target="button" row={r} onSetCustomText={onSetCustomText} onSetCustomKey={onSetCustomKey} />}
                 </div>
               ))}
             </div>
@@ -184,6 +189,19 @@ export default function ProfileEditModal({ dev, profile, mappings,
 
           <p className="group-label">触控板手势</p>
           <div className="group">
+            <div className="map-row">
+              <span className="map-key">触摸板模式</span>
+              <span className="map-gesture">单指操作</span>
+              <select
+                className="map-sel"
+                value={profile.trackpadMode || 'mouse'}
+                disabled={readOnly}
+                onChange={(e) => onSetTrackpadMode(profile.id, e.target.value)}
+              >
+                <option value="mouse">鼠标（光标控制）</option>
+                <option value="gesture">手势（滑动快捷键）</option>
+              </select>
+            </div>
             <div className="map-head"><span>手势</span><span>触发方式</span><span>执行操作</span></div>
             <div>
               {mappings.swipes.map((r) => (
@@ -194,12 +212,13 @@ export default function ProfileEditModal({ dev, profile, mappings,
                     <select
                       className="map-sel"
                       value={r.action}
+                      disabled={readOnly}
                       onChange={(e) => onSetSwipe(r.key, e.target.value)}
                     >
                       {r.options.map((o) => <option key={o.raw} value={o.raw}>{o.label}</option>)}
                     </select>
                   </div>
-                  <CustomEditor target="swipe" row={r} onSetCustomText={onSetCustomText} onSetCustomKey={onSetCustomKey} />
+                  {!readOnly && <CustomEditor target="swipe" row={r} onSetCustomText={onSetCustomText} onSetCustomKey={onSetCustomKey} />}
                 </div>
               ))}
               <div className="map-row">
@@ -208,6 +227,7 @@ export default function ProfileEditModal({ dev, profile, mappings,
                 <select
                   className="map-sel"
                   value={mappings.scrollSpeed}
+                  disabled={readOnly}
                   onChange={(e) => onSetScrollSpeed(e.target.value)}
                 >
                   {mappings.scrollSpeedOptions.map((o) => <option key={o.raw} value={o.raw}>{o.label}</option>)}

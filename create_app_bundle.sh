@@ -39,17 +39,11 @@ if [ -d "Resources" ]; then
     echo "Menu bar icons added to app bundle"
 fi
 
-# Copy React settings UI (built to web/dist/) into Resources/web/
-# WKWebView loads index.html from this location via file://
-if [ -d "web/dist" ]; then
-    rm -rf "${APP_BUNDLE}/Contents/Resources/web"
-    mkdir -p "${APP_BUNDLE}/Contents/Resources/web"
-    cp -R web/dist/. "${APP_BUNDLE}/Contents/Resources/web/"
-    echo "React settings UI added to app bundle"
-else
-    echo "Warning: web/dist not found - settings window will be blank."
-    echo "  Build it first with: cd web && npm install && npm run build"
-fi
+# Settings UI is now native SwiftUI (SettingsUI/*). The legacy React build at
+# web/dist is kept on disk as a reference but is no longer bundled — the
+# SwiftUI view replaces the WKWebView entirely. Wipe any stale web/ from a
+# previous build so the bundle stays trim.
+rm -rf "${APP_BUNDLE}/Contents/Resources/web"
 
 # Create proper Info.plist with all required keys
 echo "Creating Info.plist..."
@@ -79,7 +73,7 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Baton Contributors</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>11.0</string>
+	<string>12.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSPrincipalClass</key>

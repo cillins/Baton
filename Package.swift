@@ -6,7 +6,7 @@ import PackageDescription
 
 let package = Package(
     name: "Baton",
-    platforms: [.macOS(.v11)],
+    platforms: [.macOS(.v12)],
     products: [
         .executable(name: "Baton", targets: ["Baton"])
     ],
@@ -27,15 +27,38 @@ let package = Package(
                 "SystemVolume.swift",
                 "AudioProbe.swift",
                 "BleAudioProbe.swift",
-                "SettingsWindowController.swift"
+                "SettingsWindowController.swift",
+                "SettingsUI/Theme.swift",
+                "SettingsUI/RemoteArt.swift",
+                "SettingsUI/SettingsViewModel.swift",
+                "SettingsUI/SettingsRootView.swift",
+                "SettingsUI/PermissionGuide.swift",
+                "SettingsUI/Components/GroupCard.swift",
+                "SettingsUI/Components/KeyValueRow.swift",
+                "SettingsUI/Components/BatteryIndicator.swift",
+                "SettingsUI/Components/MacSwitch.swift",
+                "SettingsUI/Components/SegmentedTabs.swift",
+                "SettingsUI/Components/SliderRow.swift",
+                "SettingsUI/Components/KeyRecorderButton.swift",
+                "SettingsUI/Components/MapRow.swift",
+                "SettingsUI/Components/GroupLabel.swift",
+                "SettingsUI/Components/PillButton.swift",
+                "SettingsUI/Panes/SidebarView.swift",
+                "SettingsUI/Panes/DetailHeaderView.swift",
+                "SettingsUI/Panes/OverviewPane.swift",
+                "SettingsUI/Panes/ButtonsPane.swift",
+                "SettingsUI/Panes/AppsPane.swift",
+                "SettingsUI/Panes/SensitivityPane.swift",
+                "SettingsUI/Panes/SettingsPane.swift",
+                "SettingsUI/Panes/ProfileEditSheet.swift",
+                "SettingsUI/Support/RelativeTime.swift"
             ],
             linkerSettings: [
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("Carbon"),
-                .linkedFramework("AppKit"),
-                .linkedFramework("WebKit")
+                .linkedFramework("AppKit")
             ]
         )
     ]

@@ -13,11 +13,22 @@ enum ButtonAction: String, CaseIterable, Codable {
     case enterKey = "Enter: Submit prompt"
     case upKey = "Up: Navigate Up"
     case downKey = "Down: Navigate Down"
+    case leftKey = "Left: Navigate Left"
+    case rightKey = "Right: Navigate Right"
+    case bKey = "B: Black Screen"
+    case wKey = "W: White Screen"
     case escKey = "Esc: Navigate Back"
     case ctrlC = "Control + C: Cancel Prompt"
     case spaceKey = "Space: Claude Voice Dictation"
     case rightCmd = "Right Command: 3rd-party Voice Dictation"
     case rightOpt = "Right Option: 3rd-party Voice Dictation"
+    case mediaPlayPause = "Media: Play/Pause"
+    case mediaNext = "Media: Next Track"
+    case mediaPrev = "Media: Previous Track"
+    case mediaMute = "Media: Mute Toggle"
+    case systemVolumeUp = "System Volume: Up"
+    case systemVolumeDown = "System Volume: Down"
+    case presentation = "Presentation: Start Fullscreen"
     case trackpadClick = "Mouse Click"
     case customText = "Custom Text"
     case customKey = "Custom Key"
@@ -37,18 +48,29 @@ enum ButtonAction: String, CaseIterable, Codable {
     /// key and round-trips through executeAction(_:), so it must remain stable.
     var displayName: String {
         switch self {
-        case .enterKey:      return "回车：提交提示词"
-        case .upKey:         return "上箭头：向上导航"
-        case .downKey:       return "下箭头：向下导航"
-        case .escKey:        return "Esc：返回"
-        case .ctrlC:         return "Control + C：取消输入"
-        case .spaceKey:      return "空格：Claude 语音听写"
-        case .rightCmd:      return "右 Command：第三方语音听写"
-        case .rightOpt:      return "右 Option：第三方语音听写"
-        case .trackpadClick: return "鼠标点击"
-        case .customText:    return "自定义文本"
-        case .customKey:     return "自定义按键"
-        case .none:          return "无"
+        case .enterKey:         return "⏎"        // Mac Return key symbol
+        case .upKey:            return "↑"
+        case .downKey:          return "↓"
+        case .leftKey:          return "←"
+        case .rightKey:         return "→"
+        case .bKey:             return "B"
+        case .wKey:             return "W"
+        case .escKey:           return "esc"       // Mac Esc key labels "esc"
+        case .ctrlC:            return "⌃C"
+        case .spaceKey:         return "␣"
+        case .rightCmd:         return "⌘"         // ⌘ is on the Cmd key
+        case .rightOpt:         return "⌥"
+        case .mediaPlayPause:   return "⏯"
+        case .mediaNext:        return "⏭"
+        case .mediaPrev:        return "⏮"
+        case .mediaMute:        return "🔇"
+        case .systemVolumeUp:   return "音量+"
+        case .systemVolumeDown: return "音量−"
+        case .presentation:     return "⌥⌘P"
+        case .trackpadClick:    return "Click"     // no keyboard symbol for this
+        case .customText:       return "Text"      // placeholder, replaced when bound
+        case .customKey:        return "Key"       // placeholder, replaced when bound
+        case .none:             return "—"
         }
     }
 }
@@ -67,11 +89,19 @@ enum SwipeDirection: String, CaseIterable {
 /// presses Enter themselves). `leftArrow`/`rightArrow` send virtual arrow keys instead of text.
 /// `init` is a Swift keyword so the case name is backtick-escaped; rawValue "/init" is what displays.
 enum SwipeAction: String, CaseIterable, Codable {
-    // Priority order: direction-matched arrow (filtered per submenu), then Mode Switching,
+    // Priority order: direction-matched arrows (filtered per submenu), then Mode Switching,
     // then ultrathink, then slash commands alphabetically, None last.
+    case upArrow       = "Up: Navigate Up"
+    case downArrow     = "Down: Navigate Down"
     case leftArrow     = "Left: Navigate Left"
     case rightArrow    = "Right: Navigate Right"
     case modeSwitch    = "Mode Switching (Shift + Tab)"
+    case bKey          = "B: Black Screen"
+    case wKey          = "W: White Screen"
+    case mediaPlayPause = "Media: Play/Pause"
+    case mediaNext     = "Media: Next Track"
+    case mediaPrev     = "Media: Previous Track"
+    case mediaMute     = "Media: Mute Toggle"
     case ultrathink    = "ultrathink"
     case btw           = "/btw"
     case compact       = "/compact"
@@ -92,13 +122,21 @@ enum SwipeAction: String, CaseIterable, Codable {
     /// literal text typed into the prompt, so it doubles as the label.
     var displayName: String {
         switch self {
-        case .leftArrow:  return "左箭头：向左导航"
-        case .rightArrow: return "右箭头：向右导航"
-        case .modeSwitch: return "模式切换 (Shift + Tab)"
-        case .customText: return "自定义文本"
-        case .customKey:  return "自定义按键"
-        case .none:       return "无"
-        default:          return rawValue
+        case .upArrow:     return "↑"
+        case .downArrow:   return "↓"
+        case .leftArrow:   return "←"
+        case .rightArrow:  return "→"
+        case .modeSwitch:  return "⇧⇥"
+        case .bKey:        return "B"
+        case .wKey:        return "W"
+        case .mediaPlayPause: return "⏯"
+        case .mediaNext:   return "⏭"
+        case .mediaPrev:   return "⏮"
+        case .mediaMute:   return "🔇"
+        case .customText:  return "Text"
+        case .customKey:   return "Key"
+        case .none:        return "—"
+        default:           return rawValue   // slash commands
         }
     }
 }
@@ -139,6 +177,30 @@ struct Profile: Codable, Equatable {
     var builtin: Bool
     var buttonMappings: [String: ButtonAction]   // keys per MenuBarManager.buttonRows
     var swipeMappings: [String: SwipeAction]     // keys: "up"/"down"/"left"/"right"
+    /// "mouse" = cursor control only; "gesture" = swipe shortcuts only (no cursor).
+    var trackpadMode: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, builtin, buttonMappings, swipeMappings, trackpadMode
+    }
+
+    init(id: String, name: String, builtin: Bool,
+         buttonMappings: [String: ButtonAction], swipeMappings: [String: SwipeAction],
+         trackpadMode: String = "mouse") {
+        self.id = id; self.name = name; self.builtin = builtin
+        self.buttonMappings = buttonMappings; self.swipeMappings = swipeMappings
+        self.trackpadMode = trackpadMode
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        builtin = try c.decode(Bool.self, forKey: .builtin)
+        buttonMappings = try c.decode([String: ButtonAction].self, forKey: .buttonMappings)
+        swipeMappings = try c.decode([String: SwipeAction].self, forKey: .swipeMappings)
+        trackpadMode = try c.decodeIfPresent(String.self, forKey: .trackpadMode) ?? "mouse"
+    }
 }
 
 struct AppPreset: Codable, Equatable {
@@ -151,7 +213,22 @@ struct AppPreset: Codable, Equatable {
 }
 
 class MenuBarManager {
-    
+
+    /// The JS-side key recorder emits labels in glyph form, but two of them
+    /// diverge from what the Mac keyboard actually prints on the key:
+    ///   - "↩" (Unicode ENTER) vs Mac Return key ⏎
+    ///   - "⎋" (Unicode BROKEN CIRCLE) vs Mac Esc key text "esc"
+    /// Normalize so a customKey binding displays identically to the preset
+    /// action that does the same thing.
+    private static let customKeyGlyphNormalization: [String: String] = [
+        "↩": "⏎",
+        "⎋": "esc",
+    ]
+    private static func customKeyDisplayLabel(combo: [String: Any], fallback: String) -> String {
+        guard let label = combo["label"] as? String, !label.isEmpty else { return fallback }
+        return customKeyGlyphNormalization[label] ?? label
+    }
+
     private let statusItem: NSStatusItem
     private let menu: NSMenu
     private let statusMenuItem: NSMenuItem
@@ -170,20 +247,79 @@ class MenuBarManager {
     private var customSwipeKeys: [String: [String: Any]] = [:]
 
     private static let defaultSwipeMappings: [SwipeDirection: SwipeAction] = [
-        .up:    .usage,
-        .down:  .compact,
-        .left:  .model,
-        .right: .modeSwitch,
+        .up:    .upArrow,
+        .down:  .downArrow,
+        .left:  .leftArrow,
+        .right: .rightArrow,
     ]
 
     private static let defaultButtonMappings: [String: ButtonAction] = [
         "playPause": .enterKey,
         "menu": .escKey,
         "select": .trackpadClick,
-        "volumeUp": .upKey,
-        "volumeDown": .downKey,
+        "volumeUp": .systemVolumeUp,
+        "volumeDown": .systemVolumeDown,
         "siri": .spaceKey,
-        "tv": .ctrlC
+        "tv": .none
+    ]
+
+    /// Claude Code coding profile — slash commands and coding-specific inputs.
+    private static let codingSwipeMappings: [SwipeDirection: SwipeAction] = [
+        .up:    .usage,
+        .down:  .compact,
+        .left:  .model,
+        .right: .modeSwitch,
+    ]
+
+    private static let codingButtonMappings: [String: ButtonAction] = [
+        "playPause": .enterKey,
+        "menu": .escKey,
+        "select": .trackpadClick,
+        "volumeUp": .none,
+        "volumeDown": .none,
+        "siri": .spaceKey,
+        "tv": .none
+    ]
+
+    /// PPT-presentation centered profile (gen-1 remote). Menu = start fullscreen;
+    /// Siri / volume+ = previous slide; playPause / volume- = next slide; TV = exit.
+    private static let demoButtonMappings: [String: ButtonAction] = [
+        "select":     .trackpadClick,
+        "menu":       .presentation,
+        "tv":         .none,
+        "siri":       .leftKey,
+        "playPause":  .rightKey,
+        "volumeUp":   .leftKey,
+        "volumeDown": .rightKey,
+    ]
+
+    private static let demoSwipeMappings: [SwipeDirection: SwipeAction] = [
+        .up:    .bKey,
+        .down:  .wKey,
+        .left:  .leftArrow,
+        .right: .rightArrow,
+    ]
+
+    /// Media-playback centered profile. HID path is the source of truth — it synthesizes
+    /// NX_SYSDEFINED via mediaController so the playing app receives one event per press.
+    /// Volume buttons map to .none so the underlying AVRCP absolute-volume path reaches
+    /// coreaudiod; `VolumeRevertGuard.shouldArmForRemoteButton` is gated off in this profile
+    /// so the change persists.
+    private static let mediaButtonMappings: [String: ButtonAction] = [
+        "select":     .trackpadClick,
+        "menu":       .mediaPrev,
+        "tv":         .none,
+        "siri":       .mediaMute,
+        "playPause":  .mediaPlayPause,
+        "volumeUp":   .none,
+        "volumeDown": .none,
+    ]
+
+    private static let mediaSwipeMappings: [SwipeDirection: SwipeAction] = [
+        .up:    .mediaNext,
+        .down:  .mediaPrev,
+        .left:  .mediaPrev,
+        .right: .mediaNext,
     ]
 
     /// Mappable buttons in display order, shared by the menu bar and the settings
@@ -191,7 +327,6 @@ class MenuBarManager {
     static let buttonRows: [(key: String, label: String, gesture: String)] = [
         ("select",     "触控板按下",  "单击"),
         ("menu",       "Menu 键",    "单击"),
-        ("tv",         "TV 键",      "单击"),
         ("siri",       "Siri 键",    "按住"),
         ("playPause",  "播放/暂停键", "单击"),
         ("volumeUp",   "音量加",     "单击"),
@@ -200,6 +335,9 @@ class MenuBarManager {
 
     /// Actions offered for a button: hold-to-talk actions only on buttons that
     /// emit release events; Mouse Click only on the trackpad click.
+    /// Used by the React settings UI bridge (SettingsWindowController) to populate
+    /// the per-row dropdown — not by the menu bar picker, which shows the 4 fixed
+    /// entries built inline in rebuildMenu().
     static func availableActions(forButton key: String) -> [ButtonAction] {
         ButtonAction.allCases.filter { action in
             if action.requiresHold && !holdCapableButtons.contains(key) { return false }
@@ -211,6 +349,8 @@ class MenuBarManager {
     /// Swipe actions offered for a direction: arrow keys only on their matching direction.
     static func availableSwipeActions(for direction: SwipeDirection) -> [SwipeAction] {
         SwipeAction.allCases.filter { action in
+            if action == .upArrow && direction != .up { return false }
+            if action == .downArrow && direction != .down { return false }
             if action == .leftArrow && direction != .left { return false }
             if action == .rightArrow && direction != .right { return false }
             return true
@@ -226,8 +366,10 @@ class MenuBarManager {
     private(set) var gyroSmoothing: Int = 67
 
     /// One Euro minCutoff for the given smoothing strength: higher strength →
-    /// lower cutoff → heavier smoothing. 67 ≈ 0.79, matching the original 0.8.
-    var gyroMinCutoff: Double { 2.0 - Double(gyroSmoothing) / 100.0 * 1.8 }
+    /// lower cutoff → heavier smoothing. The previous 0.2...2.0 range added
+    /// too much phase lag; 0.8...5.0 keeps steady aim smooth without feeling
+    /// detached. The default 67% resolves to about 2.19 Hz.
+    var gyroMinCutoff: Double { 5.0 - Double(gyroSmoothing) / 100.0 * 4.2 }
 
     // Trackpad cursor sensitivity (TouchHandler cursorScale; 500 = default).
     private(set) var trackpadSensitivity: Int = 500
@@ -244,6 +386,10 @@ class MenuBarManager {
     /// or app activation binding match). The settings window refetches state
     /// in response so the per-row action labels stay in sync.
     var onCurrentProfileChange: ((String) -> Void)?
+
+    /// Set by AppDelegate; fired when the active profile's trackpadMode changes.
+    /// The TouchHandler switches between cursor and gesture-only behaviour.
+    var onTrackpadModeChange: ((String) -> Void)?
 
     /// Set by app delegate so menu bar can delegate media actions to MediaController.
     var mediaController: MediaController?
@@ -286,7 +432,8 @@ class MenuBarManager {
         // Schema version bumps:
         //   v3: old media-key actions removed — drop all saved button mappings
         //   v4: "select" default changed from .enterKey to .trackpadClick — reset just that entry
-        let currentSchema = 4
+        //   v5: default volume buttons explicitly map to system volume up/down
+        let currentSchema = 5
         let savedSchema = UserDefaults.standard.integer(forKey: "buttonMappingsSchema")
         if savedSchema < 3 {
             UserDefaults.standard.removeObject(forKey: "buttonMappings")
@@ -296,6 +443,18 @@ class MenuBarManager {
                 saved.removeValue(forKey: "select")
                 UserDefaults.standard.set(saved, forKey: "buttonMappings")
             }
+        }
+        if savedSchema >= 4 && savedSchema < 5,
+           var saved = UserDefaults.standard.dictionary(forKey: "buttonMappings") as? [String: String] {
+            // Only replace the old factory value. Preserve an explicit custom
+            // mapping if the user already assigned either volume button.
+            if saved["volumeUp"] == ButtonAction.none.rawValue {
+                saved.removeValue(forKey: "volumeUp")
+            }
+            if saved["volumeDown"] == ButtonAction.none.rawValue {
+                saved.removeValue(forKey: "volumeDown")
+            }
+            UserDefaults.standard.set(saved, forKey: "buttonMappings")
         }
         if savedSchema < currentSchema {
             UserDefaults.standard.set(currentSchema, forKey: "buttonMappingsSchema")
@@ -330,47 +489,17 @@ class MenuBarManager {
         UserDefaults.standard.set(toSave, forKey: "buttonMappings")
     }
     
-    /// Procedurally draw the menu-bar icon — a walkie-talkie glyph mirroring the
-    /// Figma reference (36-unit viewBox: antenna + body with display + speaker
-    /// holes via even-odd fill). 2× centered scale matches the menu-bar reading
-    /// size; overflow clips at the canvas edges by design.
-    private static func makeWaveIcon() -> NSImage {
-        let pt: CGFloat = 18
-        let image = NSImage(size: NSSize(width: pt, height: pt), flipped: true) { rect in
-            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-            let scale = pt / 24.0  // 0.75
-
-            ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-            ctx.setLineWidth(1.7 * scale)
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
-
-            // Body: rounded rect (8.5, 2.5, 7, 19, rx 3) - stroke only, matches SVG fill="none".
-            let bodyRect = CGRect(x: 8.5 * scale, y: 2.5 * scale,
-                                  width: 7 * scale, height: 19 * scale)
-            ctx.addPath(CGPath(roundedRect: bodyRect,
-                               cornerWidth: 3 * scale, cornerHeight: 3 * scale, transform: nil))
-            ctx.strokePath()
-
-            // Circle near top (touchpad / Siri button): cx=12, cy=7.4, r=2.4
-            let circleRect = CGRect(x: (12 - 2.4) * scale, y: (7.4 - 2.4) * scale,
-                                    width: 4.8 * scale, height: 4.8 * scale)
-            ctx.addEllipse(in: circleRect)
-            ctx.strokePath()
-
-            // Two horizontal lines (buttons): 10.4,13.6 -> 13.6,13.6 and 10.4,16.4 -> 13.6,16.4
-            ctx.move(to: CGPoint(x: 10.4 * scale, y: 13.6 * scale))
-            ctx.addLine(to: CGPoint(x: 13.6 * scale, y: 13.6 * scale))
-            ctx.strokePath()
-
-            ctx.move(to: CGPoint(x: 10.4 * scale, y: 16.4 * scale))
-            ctx.addLine(to: CGPoint(x: 13.6 * scale, y: 16.4 * scale))
-            ctx.strokePath()
-
-            return true
+    /// Loads the user-designed Siri Remote menu-bar icon from `Resources/`.
+    /// NSImage auto-resolves `@2x` on retina; falls back to a 1×1 transparent
+    /// image if the asset is missing (e.g., during dev with no bundle yet).
+    /// `isTemplate = true` lets AppKit tint the silhouette with the menu bar's
+    /// foreground color, so the icon adapts to light/dark menu bars automatically.
+    private static func makeRemoteIcon() -> NSImage {
+        if let img = NSImage(named: "MenuBarIcon") {
+            img.isTemplate = true
+            return img
         }
-        image.isTemplate = true
-        return image
+        return NSImage(size: NSSize(width: 18, height: 18))
     }
 
     private func setupMenuBar() {
@@ -379,7 +508,7 @@ class MenuBarManager {
             return
         }
 
-        button.image = Self.makeWaveIcon()
+        button.image = Self.makeRemoteIcon()
         button.title = ""
 
         rebuildMenu()
@@ -413,15 +542,24 @@ class MenuBarManager {
             let buttonItem = NSMenuItem(title: label, action: nil, keyEquivalent: "")
             let actionSubmenu = NSMenu()
 
-            for action in Self.availableActions(forButton: key) {
-                let actionItem = NSMenuItem(title: action.displayName, action: #selector(changeMapping(_:)), keyEquivalent: "")
+            let profileDefault = currentProfile.buttonMappings[key] ?? .none
+            let current = buttonMappings[key] ?? .none
+            let entries: [(tag: String, title: String)] = [
+                ("profileDefault", "默认设置"),
+                ("customKey",      pickerLabel(forCustomKey: customButtonKeys[key])),
+                ("customText",     pickerLabel(forCustomText: customButtonTexts[key])),
+                ("none",           ButtonAction.none.displayName),
+            ]
+            for entry in entries {
+                let actionItem = NSMenuItem(title: entry.title, action: #selector(changeMapping(_:)), keyEquivalent: "")
                 actionItem.target = self
-                actionItem.representedObject = (key, action)
-
-                if buttonMappings[key] == action {
+                actionItem.representedObject = (key, entry.tag)
+                if (entry.tag == "profileDefault" && current == profileDefault) ||
+                   (entry.tag == "customKey" && current == .customKey) ||
+                   (entry.tag == "customText" && current == .customText) ||
+                   (entry.tag == "none" && current == .none) {
                     actionItem.state = .on
                 }
-
                 actionSubmenu.addItem(actionItem)
             }
 
@@ -444,11 +582,22 @@ class MenuBarManager {
         for (direction, label) in swipes {
             let dirItem = NSMenuItem(title: label, action: nil, keyEquivalent: "")
             let actionsMenu = NSMenu()
-            for action in Self.availableSwipeActions(for: direction) {
-                let actionItem = NSMenuItem(title: action.displayName, action: #selector(changeSwipeMapping(_:)), keyEquivalent: "")
+            let profileDefault = currentProfile.swipeMappings[direction.rawValue] ?? .none
+            let current = swipeMappings[direction] ?? .none
+            let entries: [(tag: String, title: String)] = [
+                ("profileDefault", "默认设置"),
+                ("customKey",      pickerLabel(forCustomKey: customSwipeKeys[direction.rawValue])),
+                ("customText",     pickerLabel(forCustomText: customSwipeTexts[direction.rawValue])),
+                ("none",           SwipeAction.none.displayName),
+            ]
+            for entry in entries {
+                let actionItem = NSMenuItem(title: entry.title, action: #selector(changeSwipeMapping(_:)), keyEquivalent: "")
                 actionItem.target = self
-                actionItem.representedObject = (direction, action)
-                if swipeMappings[direction] == action {
+                actionItem.representedObject = (direction, entry.tag)
+                if (entry.tag == "profileDefault" && current == profileDefault) ||
+                   (entry.tag == "customKey" && current == .customKey) ||
+                   (entry.tag == "customText" && current == .customText) ||
+                   (entry.tag == "none" && current == .none) {
                     actionItem.state = .on
                 }
                 actionsMenu.addItem(actionItem)
@@ -473,8 +622,16 @@ class MenuBarManager {
     }
     
     @objc private func changeMapping(_ sender: NSMenuItem) {
-        guard let (buttonKey, action) = sender.representedObject as? (String, ButtonAction) else {
+        guard let (buttonKey, tag) = sender.representedObject as? (String, String) else {
             return
+        }
+        let action: ButtonAction
+        switch tag {
+        case "profileDefault": action = currentProfile.buttonMappings[buttonKey] ?? .none
+        case "customKey":      action = .customKey
+        case "customText":     action = .customText
+        case "none":           action = .none
+        default: return
         }
         buttonMappings[buttonKey] = action
         saveMappings()
@@ -482,12 +639,35 @@ class MenuBarManager {
     }
 
     @objc private func changeSwipeMapping(_ sender: NSMenuItem) {
-        guard let (direction, action) = sender.representedObject as? (SwipeDirection, SwipeAction) else {
+        guard let (direction, tag) = sender.representedObject as? (SwipeDirection, String) else {
             return
+        }
+        let action: SwipeAction
+        switch tag {
+        case "profileDefault": action = currentProfile.swipeMappings[direction.rawValue] ?? .none
+        case "customKey":      action = .customKey
+        case "customText":     action = .customText
+        case "none":           action = .none
+        default: return
         }
         swipeMappings[direction] = action
         saveSwipeMappings()
         rebuildMenu()
+    }
+
+    /// Title shown for the customKey row in the 4-item picker. Falls back to the
+    /// placeholder glyph ("Key") when the user hasn't recorded a combo yet.
+    private func pickerLabel(forCustomKey combo: [String: Any]?) -> String {
+        guard let combo = combo else { return ButtonAction.customKey.displayName }
+        return Self.customKeyDisplayLabel(combo: combo, fallback: ButtonAction.customKey.displayName)
+    }
+
+    /// Title shown for the customText row in the 4-item picker. Falls back to the
+    /// placeholder ("Text") when the user hasn't typed a string yet. Truncates long
+    /// strings with an ellipsis so the menu doesn't widen.
+    private func pickerLabel(forCustomText text: String?) -> String {
+        guard let txt = text, !txt.isEmpty else { return ButtonAction.customText.displayName }
+        return txt.count > 12 ? String(txt.prefix(12)) + "…" : txt
     }
     
     func updateConnectionStatus(connected: Bool) {
@@ -580,6 +760,8 @@ class MenuBarManager {
         if UserDefaults.standard.object(forKey: "gyroSmoothing") != nil {
             gyroSmoothing = UserDefaults.standard.integer(forKey: "gyroSmoothing")
         }
+        // Horizontal direction is now a fixed part of the A1962 axis mapping.
+        UserDefaults.standard.removeObject(forKey: "gyroInvertHorizontal")
     }
 
     /// Update gyro feel from the settings window; persists + notifies the input handler.
@@ -697,12 +879,28 @@ class MenuBarManager {
         switch action {
         case .none:
             break
+        case .upArrow:
+            sendKey(kVK_UpArrow)
+        case .downArrow:
+            sendKey(kVK_DownArrow)
         case .leftArrow:
             sendKey(kVK_LeftArrow)
         case .rightArrow:
             sendKey(kVK_RightArrow)
         case .modeSwitch:
             sendKey(kVK_Tab, flags: .maskShift)
+        case .bKey:
+            sendKey(kVK_ANSI_B)
+        case .wKey:
+            sendKey(kVK_ANSI_W)
+        case .mediaPlayPause:
+            mediaController?.sendMediaKey(.playPause)
+        case .mediaNext:
+            mediaController?.sendMediaKey(.next)
+        case .mediaPrev:
+            mediaController?.sendMediaKey(.previous)
+        case .mediaMute:
+            mediaController?.sendMediaKey(.mute)
         case .btw, .schedule, .ultrathink:
             // Trailing space: user typically continues with an argument or prose.
             typeString(action.rawValue + " ")
@@ -754,6 +952,14 @@ class MenuBarManager {
             sendKey(kVK_UpArrow)
         case .downKey:
             sendKey(kVK_DownArrow)
+        case .leftKey:
+            sendKey(kVK_LeftArrow)
+        case .rightKey:
+            sendKey(kVK_RightArrow)
+        case .bKey:
+            sendKey(kVK_ANSI_B)
+        case .wKey:
+            sendKey(kVK_ANSI_W)
         case .escKey:
             sendKey(kVK_Escape)
         case .ctrlC:
@@ -764,6 +970,21 @@ class MenuBarManager {
             sendModifierTap(kVK_RightCommand, flag: .maskCommand)
         case .rightOpt:
             sendModifierTap(kVK_RightOption, flag: .maskAlternate)
+        case .mediaPlayPause:
+            mediaController?.sendMediaKey(.playPause)
+        case .mediaNext:
+            mediaController?.sendMediaKey(.next)
+        case .mediaPrev:
+            mediaController?.sendMediaKey(.previous)
+        case .mediaMute:
+            mediaController?.sendMediaKey(.mute)
+        case .systemVolumeUp, .systemVolumeDown:
+            // The Siri Remote's AVRCP absolute-volume channel performs the
+            // actual change. This semantic action controls whether that
+            // channel is allowed through without synthesizing a duplicate.
+            break
+        case .presentation:
+            sendKey(kVK_ANSI_P, flags: [.maskCommand, .maskAlternate])
         case .trackpadClick:
             performClick()
         case .customText:
@@ -823,21 +1044,58 @@ class MenuBarManager {
 
     // MARK: - Profiles + app presets
 
+    /// Canonical defaults for built-in profiles. Used by loadProfiles() seeding and
+    /// resetProfileToDefault() to restore a profile to its factory mappings.
+    private static let builtinSeeds: [(id: String, name: String, buttonMappings: [String: ButtonAction], swipeMappings: [SwipeDirection: SwipeAction], trackpadMode: String)] = [
+        ("default", "默认配置", defaultButtonMappings, defaultSwipeMappings, "mouse"),
+        ("coding",  "Vibe Coding", codingButtonMappings, codingSwipeMappings, "gesture"),
+        ("demo",    "演示模式", demoButtonMappings,    demoSwipeMappings,    "gesture"),
+        ("media",   "媒体播放", mediaButtonMappings,   mediaSwipeMappings,   "gesture"),
+    ]
+
     private func loadProfiles() {
+        let builtinSeeds = Self.builtinSeeds
+
+        var loaded: [Profile] = []
         if let data = UserDefaults.standard.data(forKey: "profiles"),
-           let saved = try? JSONDecoder().decode([Profile].self, from: data),
-           !saved.isEmpty {
-            profiles = saved
-            currentProfileId = UserDefaults.standard.string(forKey: "currentProfileId") ?? "default"
-            applyProfileMappings(profileId: currentProfileId)
-        } else {
-            // First run: seed a "default" profile from the runtime mappings.
-            profiles = [Profile(id: "default", name: "默认映射", builtin: true,
-                                buttonMappings: buttonMappings,
-                                swipeMappings: swipeDirectionKeys(swipeMappings))]
-            currentProfileId = "default"
-            saveProfiles()
+           let saved = try? JSONDecoder().decode([Profile].self, from: data) {
+            loaded = saved
         }
+
+        // Profile schema version: bump when built-in profile definitions change so
+        // existing users' built-in profiles get refreshed to the new canonical mappings.
+        // User-created (non-builtin) profiles are never touched.
+        let profileSchema = 10
+        let savedSchema = UserDefaults.standard.integer(forKey: "profileSchema")
+        if savedSchema < profileSchema {
+            // Overwrite built-in profiles with canonical defaults.
+            for seed in builtinSeeds {
+                if let idx = loaded.firstIndex(where: { $0.id == seed.id && $0.builtin }) {
+                    loaded[idx].buttonMappings = seed.buttonMappings
+                    loaded[idx].swipeMappings = swipeDirectionKeys(seed.swipeMappings)
+                    loaded[idx].name = seed.name
+                    loaded[idx].trackpadMode = seed.trackpadMode
+                }
+            }
+            UserDefaults.standard.set(profileSchema, forKey: "profileSchema")
+        }
+
+        // Idempotently append any missing built-in. Existing users gain
+        // "演示模式" / "媒体播放" without disturbing their saved profiles;
+        // fresh installs get all three seeded from per-profile canonical defaults.
+        for seed in builtinSeeds where !loaded.contains(where: { $0.id == seed.id }) {
+            loaded.append(Profile(
+                id: seed.id, name: seed.name, builtin: true,
+                buttonMappings: seed.buttonMappings,
+                swipeMappings: swipeDirectionKeys(seed.swipeMappings),
+                trackpadMode: seed.trackpadMode
+            ))
+        }
+
+        profiles = loaded
+        currentProfileId = UserDefaults.standard.string(forKey: "currentProfileId") ?? "default"
+        applyProfileMappings(profileId: currentProfileId)
+        saveProfiles()
     }
 
     private func loadAppPresets() {
@@ -879,6 +1137,7 @@ class MenuBarManager {
         guard let p = profiles.first(where: { $0.id == profileId }) else { return }
         buttonMappings = p.buttonMappings
         swipeMappings = swipeDirectionMap(p.swipeMappings)
+        onTrackpadModeChange?(p.trackpadMode)
         rebuildMenu()
     }
 
@@ -886,8 +1145,8 @@ class MenuBarManager {
     /// stored id went stale (e.g. profile deleted via UI).
     var currentProfile: Profile {
         profiles.first(where: { $0.id == currentProfileId }) ?? profiles.first ?? Profile(
-            id: "default", name: "默认映射", builtin: true,
-            buttonMappings: buttonMappings, swipeMappings: swipeDirectionKeys(swipeMappings))
+            id: "default", name: "默认配置", builtin: true,
+            buttonMappings: Self.defaultButtonMappings, swipeMappings: swipeDirectionKeys(Self.defaultSwipeMappings))
     }
 
     @discardableResult
@@ -919,6 +1178,16 @@ class MenuBarManager {
     func renameProfile(id: String, name: String) {
         guard let i = profiles.firstIndex(where: { $0.id == id }) else { return }
         profiles[i].name = name
+        saveProfiles()
+    }
+
+    /// Set the trackpad mode ("mouse" or "gesture") for a specific profile.
+    func setTrackpadMode(profileId: String, mode: String) {
+        guard let i = profiles.firstIndex(where: { $0.id == profileId }) else { return }
+        profiles[i].trackpadMode = mode
+        if profileId == currentProfileId {
+            onTrackpadModeChange?(mode)
+        }
         saveProfiles()
     }
 
@@ -970,6 +1239,25 @@ class MenuBarManager {
         saveProfiles()
     }
 
+    /// Reset a specific profile to its canonical default mappings. For built-in profiles
+    /// this restores the factory bindings; for user-created profiles it clears to .none.
+    func resetProfileToDefault(profileId: String) {
+        guard let i = profiles.firstIndex(where: { $0.id == profileId }) else { return }
+        if let seed = Self.builtinSeeds.first(where: { $0.id == profileId }) {
+            profiles[i].buttonMappings = seed.buttonMappings
+            profiles[i].swipeMappings = swipeDirectionKeys(seed.swipeMappings)
+        } else {
+            // User-created profile: clear all to .none
+            profiles[i].buttonMappings = profiles[i].buttonMappings.mapValues { _ in .none }
+            profiles[i].swipeMappings = profiles[i].swipeMappings.mapValues { _ in .none }
+        }
+        if profileId == currentProfileId {
+            applyProfileMappings(profileId: profileId)
+            rebuildMenu()
+        }
+        saveProfiles()
+    }
+
     func addAppPreset(bundleId: String, appName: String, profileId: String, iconData: Data?) {
         if let i = appPresets.firstIndex(where: { $0.bundleId == bundleId }) {
             appPresets[i].appName = appName
@@ -988,16 +1276,108 @@ class MenuBarManager {
     }
 
     func setAppPresetProfile(bundleId: String, profileId: String) {
-        guard let i = appPresets.firstIndex(where: { $0.bundleId == bundleId }) else { return }
+        guard profiles.contains(where: { $0.id == profileId }),
+              let i = appPresets.firstIndex(where: { $0.bundleId == bundleId }) else {
+            rmDebug("⚠️ preset profile ignored: app=\(bundleId) profile=\(profileId)")
+            return
+        }
         appPresets[i].profileId = profileId
         saveAppPresets()
+        rmDebug("🎛 preset profile updated: app=\(bundleId) profile=\(profileId)")
     }
 
     /// Called from the NSWorkspace observer when the frontmost app changes.
     /// If a preset binds it to a profile, flip the active profile; otherwise
-    /// leave the current selection alone.
+    /// leave the current selection alone. Always resets the system override
+    /// so the new app's preset takes effect.
     func applyAppActivation(bundleId: String) {
+        isSystemOverride = false
         guard let p = appPresets.first(where: { $0.bundleId == bundleId }) else { return }
         selectProfile(id: p.profileId)
+    }
+
+    /// True when user manually forced the system (default) profile via TV key.
+    private(set) var isSystemOverride = false
+    private var hudWindow: NSWindow?
+    private var hudTimer: Timer?
+
+    /// Toggle between app-preset profile and system default profile (TV key).
+    func toggleSystemOverride() {
+        isSystemOverride.toggle()
+        if isSystemOverride {
+            selectProfile(id: "default")
+        } else {
+            // Restore the frontmost app's preset, or fall back to default.
+            let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            let presetId = front.flatMap { bid in appPresets.first { $0.bundleId == bid }?.profileId }
+            selectProfile(id: presetId ?? "default")
+        }
+        // HUD shows the actual profile name now active.
+        let name = profiles.first { $0.id == currentProfileId }?.name ?? currentProfileId
+        showHUD(name)
+    }
+
+    /// Brief floating HUD at the bottom-center of the screen (like macOS volume indicator).
+    private func showHUD(_ text: String) {
+        hudTimer?.invalidate()
+
+        // Reuse or create the borderless overlay window.
+        if hudWindow == nil {
+            let w = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 200, height: 44),
+                styleMask: .borderless,
+                backing: .buffered,
+                defer: false
+            )
+            w.isOpaque = false
+            w.backgroundColor = .clear
+            w.level = .statusBar
+            w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            w.ignoresMouseEvents = true
+            w.hasShadow = false
+
+            let label = NSTextField(labelWithString: "")
+            label.alignment = .center
+            label.font = .systemFont(ofSize: 15, weight: .medium)
+            label.textColor = .white
+            label.translatesAutoresizingMaskIntoConstraints = false
+            w.contentView?.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: w.contentView!.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: w.contentView!.centerYAnchor),
+            ])
+            hudWindow = w
+        }
+
+        guard let win = hudWindow,
+              let label = win.contentView?.subviews.first as? NSTextField,
+              let screen = NSScreen.main else { return }
+
+        label.stringValue = text
+
+        // Rounded-rect dark background via layer.
+        win.contentView?.wantsLayer = true
+        win.contentView?.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.75).cgColor
+        win.contentView?.layer?.cornerRadius = 10
+
+        // Position: bottom-center of the main screen, ~80px from the bottom edge.
+        let screenFrame = screen.visibleFrame
+        let winSize = NSSize(width: 200, height: 44)
+        let x = screenFrame.midX - winSize.width / 2
+        let y = screenFrame.origin.y + 80
+        win.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: winSize), display: true)
+
+        win.alphaValue = 1
+        win.orderFrontRegardless()
+
+        // Fade out after 1.5s.
+        hudTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.3
+                self?.hudWindow?.animator().alphaValue = 0
+            }, completionHandler: {
+                self?.hudWindow?.orderOut(nil)
+            })
+        }
     }
 }

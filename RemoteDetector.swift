@@ -29,7 +29,8 @@ enum Generation: String {
         // A1513 (Gen 1) — silver trackpad Siri Remote. Reports 0x0221 on
         // early firmware and 0x0255 / 0x0266 on later firmware revisions of
         // the same hardware.
-        case 0x0221, 0x0255, 0x0266:
+        // A1962 (white ring) reports 0x026D on current macOS BLE HID.
+        case 0x0221, 0x0255, 0x0266, 0x026D:
             return .gen1
         // A1969 / A2179 (Gen 2) and A2540 (Gen 3) — clickpad-ring with
         // discrete arrow buttons. Visually identical from the front.
@@ -68,17 +69,21 @@ class RemoteDetector {
     /// callbacks when the same physical remote re-enumerates (the BLE HID
     /// stack fires device-added multiple times for the same remote).
     private var lastGeneration: Generation?
-    private var connectedDeviceCount = 0
-    // Track devices by vendorID:productID combination
-    // A single physical Siri Remote may expose multiple HID interfaces, but we only want to process one
-    private var processedDeviceKeys: Set<String> = []
+    /// Each physical remote exposes several IOHIDDevice interfaces. Track the
+    /// interface registry IDs under the physical device UUID so removing one
+    /// interface cannot falsely mark the whole remote disconnected. Unlike the
+    /// old vendor:product key, the physical UUID also distinguishes two remotes
+    /// of the same model.
+    private var interfaceIDsByPhysicalKey: [String: Set<UInt64>] = [:]
+    private var devicesByInterfaceID: [UInt64: IOHIDDevice] = [:]
+    private var currentPhysicalKey: String?
     private let processingQueue = DispatchQueue(label: "com.baton.deviceProcessing")
     
     private let appleVendorID: Int = 0x004C
     
     // Known Siri Remote / Apple TV Remote product IDs
     private let knownProductIDs: [Int] = [
-        0x0221, 0x0255, 0x0266, 0x0267, 0x0269,
+        0x0221, 0x0255, 0x0266, 0x0267, 0x0269, 0x026D,
         0x0C4E, 0x0C4F, 0x030D, 0x030E
     ]
     
@@ -131,8 +136,9 @@ class RemoteDetector {
             self.manager = nil
         }
         currentDevice = nil
-        processedDeviceKeys.removeAll()
-        connectedDeviceCount = 0
+        currentPhysicalKey = nil
+        interfaceIDsByPhysicalKey.removeAll()
+        devicesByInterfaceID.removeAll()
         deviceCallback?(nil)
     }
 
@@ -140,7 +146,18 @@ class RemoteDetector {
     /// Reads kIOHIDProductKey live so the settings window shows the real name.
     var currentDeviceName: String? {
         guard let device = currentDevice else { return nil }
-        return IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String
+        let rawName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String
+        let serial = IOHIDDeviceGetProperty(device, kIOHIDSerialNumberKey as CFString) as? String
+        let productID = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int
+
+        // A1962 exposes its serial as the HID product string instead of the
+        // user-visible Bluetooth name. Show a friendly model plus a stable
+        // suffix so two A1962 remotes do not look like the same device.
+        if productID == 0x026D {
+            let suffix = serial.flatMap { $0.isEmpty ? nil : String($0.suffix(4)) }
+            return suffix.map { "Siri Remote A1962 · \($0)" } ?? "Siri Remote A1962"
+        }
+        return rawName
     }
 
     /// Hardware generation of the currently connected remote. Derived from the
@@ -217,9 +234,10 @@ class RemoteDetector {
             let n = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "?"
             let pup = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? -1
             let pu  = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int ?? -1
-            rmDebug(String(format: "🛰 candidate vendor=0x%X product=0x%X usagePage=0x%X usage=0x%X name=%@",
-                           v, p, pup, pu, n))
-            if isSiriRemote(device) {
+            let matches = isSiriRemote(device)
+            rmDebug(String(format: "🛰 candidate vendor=0x%X product=0x%X usagePage=0x%X usage=0x%X name=%@ matched=%@",
+                           v, p, pup, pu, n, matches ? "yes" : "no"))
+            if matches {
                 handleDeviceAdded(device)
             }
         }
@@ -241,6 +259,72 @@ class RemoteDetector {
         
         return false
     }
+
+    /// Stable identity shared by every HID interface of one physical remote.
+    /// `PhysicalDeviceUniqueID` is present for BLE HID on current macOS. The
+    /// fallbacks keep older firmware working without returning to a plain
+    /// vendor/product key that merges same-model remotes.
+    private func physicalDeviceKey(for device: IOHIDDevice) -> String {
+        if let uuid = IOHIDDeviceGetProperty(
+            device, kIOHIDPhysicalDeviceUniqueIDKey as CFString
+        ) as? String, !uuid.isEmpty {
+            return "physical:\(uuid)"
+        }
+        if let serial = IOHIDDeviceGetProperty(
+            device, kIOHIDSerialNumberKey as CFString
+        ) as? String, !serial.isEmpty {
+            return "serial:\(serial)"
+        }
+        if let address = IOHIDDeviceGetProperty(
+            device, "DeviceAddress" as CFString
+        ) as? String, !address.isEmpty {
+            return "address:\(address)"
+        }
+
+        // BLE interface LocationIDs are allocated consecutively; subtracting
+        // bInterfaceNumber recovers the shared physical base location.
+        if let location = IOHIDDeviceGetProperty(
+            device, kIOHIDLocationIDKey as CFString
+        ) as? Int,
+           let interface = IOHIDDeviceGetProperty(
+            device, "bInterfaceNumber" as CFString
+           ) as? Int {
+            return "location-base:\(location - interface)"
+        }
+
+        let vendor = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
+        let product = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
+        let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "unknown"
+        return "fallback:\(vendor):\(product):\(name)"
+    }
+
+    /// Unique identity for one IOHIDDevice interface. Enumeration and the
+    /// matching callback can report the same interface, so registry ID keeps
+    /// it from being counted twice.
+    private func interfaceRegistryID(for device: IOHIDDevice) -> UInt64 {
+        var registryID: UInt64 = 0
+        let service = IOHIDDeviceGetService(device)
+        if service != 0,
+           IORegistryEntryGetRegistryEntryID(service, &registryID) == kIOReturnSuccess {
+            return registryID
+        }
+        return UInt64(UInt(bitPattern: Unmanaged.passUnretained(device).toOpaque()))
+    }
+
+    private func publishGenerationIfNeeded(_ generation: Generation?, productID: Int?) {
+        rmDebug(String(format: "🛰 gen check: productID=%@ resolved=%@ last=%@",
+                       productID.map { String(format: "0x%X", $0) } ?? "nil",
+                       (generation?.wireTag as NSString?) ?? "nil" as NSString,
+                       (lastGeneration?.wireTag as NSString?) ?? "nil" as NSString))
+        guard generation != lastGeneration else { return }
+        lastGeneration = generation
+        if let generation {
+            UserDefaults.standard.set(generation.wireTag, forKey: Self.lastKnownGenerationKey)
+        }
+        let callback = onGenerationChange
+        DispatchQueue.main.async { callback?(generation) }
+        rmDebug("🛰 gen change fired: \(generation?.wireTag ?? "nil")")
+    }
     
     func handleDeviceAdded(_ device: IOHIDDevice) {
         guard isSiriRemote(device) else { return }
@@ -249,54 +333,48 @@ class RemoteDetector {
         let vendorID = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
         let productID = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
         
-        // Create a key based on vendor+product to group all HID interfaces from the same physical device
-        // A single Siri Remote may expose multiple HID interfaces (buttons, touch, etc.)
-        // but they all share the same vendor and product ID
-        let deviceKey = "\(vendorID):\(productID)"
+        let physicalKey = physicalDeviceKey(for: device)
+        let interfaceID = interfaceRegistryID(for: device)
+        rmDebug("🛰 queueing interface: registry=0x\(String(interfaceID, radix: 16)) physical=\(physicalKey)")
         
         // Use a serialized queue to prevent race conditions when processing devices
         processingQueue.async { [weak self] in
             guard let self = self else { return }
             
-            let shouldLog: Bool
-            if !self.processedDeviceKeys.contains(deviceKey) {
-                // First time seeing this vendor+product combination - log it
-                self.processedDeviceKeys.insert(deviceKey)
-                self.connectedDeviceCount += 1
-                shouldLog = true
-            } else {
-                // Already seen this vendor+product - skip logging but still process the device
-                shouldLog = false
+            var interfaceIDs = self.interfaceIDsByPhysicalKey[physicalKey] ?? []
+            let inserted = interfaceIDs.insert(interfaceID).inserted
+            guard inserted else { return }
+            let isNewPhysicalDevice = interfaceIDs.count == 1
+            self.interfaceIDsByPhysicalKey[physicalKey] = interfaceIDs
+            self.devicesByInterfaceID[interfaceID] = device
+
+            // Baton controls one active remote. A genuinely new physical UUID
+            // takes over; additional interfaces of that remote only enrich the
+            // input handler and never create another UI connection.
+            if self.currentPhysicalKey == nil || isNewPhysicalDevice {
+                self.currentPhysicalKey = physicalKey
             }
             
             // Always set currentDevice to the latest device (for tracking)
-            self.currentDevice = device
+            if self.currentPhysicalKey == physicalKey {
+                self.currentDevice = device
+            }
             if let name = self.currentDeviceName, !name.isEmpty {
                 UserDefaults.standard.set(name, forKey: Self.lastKnownDeviceNameKey)
             }
 
-            // Only log once per physical device (vendor+product combination)
-            if shouldLog {
+            if isNewPhysicalDevice {
                 let productName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Unknown"
+                rmDebug("✅ physical remote connected: \(productName) key=\(physicalKey)")
                 print("✅ Siri Remote connected: \(productName) (Vendor: 0x\(String(vendorID, radix: 16, uppercase: true)), Product: 0x\(String(productID, radix: 16, uppercase: true)))")
             }
+            rmDebug("🛰 interface added: registry=0x\(String(interfaceID, radix: 16)) physical=\(physicalKey) count=\(interfaceIDs.count)")
 
             // Fire onGenerationChange only when the resolved generation actually
             // differs from the last one we reported — the BLE stack re-emits
             // device-added for every HID interface of the same physical remote.
-            let newGen = self.currentGeneration
-            rmDebug(String(format: "🛰 gen check: productID=0x%X resolved=%@ last=%@",
-                           productID,
-                           (newGen?.wireTag as NSString?) ?? "nil" as NSString,
-                           (self.lastGeneration?.wireTag as NSString?) ?? "nil" as NSString))
-            if newGen != self.lastGeneration {
-                self.lastGeneration = newGen
-                if let g = newGen {
-                    UserDefaults.standard.set(g.wireTag, forKey: Self.lastKnownGenerationKey)
-                }
-                let cb = self.onGenerationChange
-                DispatchQueue.main.async { cb?(newGen) }
-                rmDebug("🛰 gen change fired: \(newGen?.wireTag ?? "nil")")
+            if self.currentPhysicalKey == physicalKey {
+                self.publishGenerationIfNeeded(Generation.fromProductID(productID), productID: productID)
             }
 
             // Always pass the device to the callback - RemoteInputHandler needs all HID interfaces
@@ -310,23 +388,50 @@ class RemoteDetector {
         guard isSiriRemote(device) else { return }
         
         // Get device properties (safe to read from any thread)
-        let vendorID = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
         let productID = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
         
-        // Create the same key based on vendor+product
-        let deviceKey = "\(vendorID):\(productID)"
+        let physicalKey = physicalDeviceKey(for: device)
+        let interfaceID = interfaceRegistryID(for: device)
         
         // Use a serialized queue to prevent race conditions
         processingQueue.async { [weak self] in
             guard let self = self else { return }
             
-            // Only process removal if we've seen this device before
-            guard self.processedDeviceKeys.contains(deviceKey) else { return }
-            
-            self.processedDeviceKeys.remove(deviceKey)
-            self.connectedDeviceCount = max(0, self.connectedDeviceCount - 1)
-            
-            if self.connectedDeviceCount == 0 {
+            guard var interfaceIDs = self.interfaceIDsByPhysicalKey[physicalKey],
+                  interfaceIDs.remove(interfaceID) != nil else { return }
+            self.devicesByInterfaceID.removeValue(forKey: interfaceID)
+
+            if !interfaceIDs.isEmpty {
+                self.interfaceIDsByPhysicalKey[physicalKey] = interfaceIDs
+                if self.currentPhysicalKey == physicalKey, self.currentDevice === device,
+                   let replacementID = interfaceIDs.first {
+                    self.currentDevice = self.devicesByInterfaceID[replacementID]
+                }
+                rmDebug("🛰 interface removed: registry=0x\(String(interfaceID, radix: 16)) physical=\(physicalKey) remaining=\(interfaceIDs.count)")
+                return
+            }
+
+            self.interfaceIDsByPhysicalKey.removeValue(forKey: physicalKey)
+            rmDebug("❌ physical remote disconnected: key=\(physicalKey)")
+
+            guard self.currentPhysicalKey == physicalKey else { return }
+
+            if let nextPhysicalKey = self.interfaceIDsByPhysicalKey.keys.first,
+               let nextInterfaceID = self.interfaceIDsByPhysicalKey[nextPhysicalKey]?.first,
+               let nextDevice = self.devicesByInterfaceID[nextInterfaceID] {
+                // Another distinct remote is still connected; switch identity
+                // without sending a false disconnected state to the UI.
+                self.currentPhysicalKey = nextPhysicalKey
+                self.currentDevice = nextDevice
+                let nextProductID = IOHIDDeviceGetProperty(
+                    nextDevice, kIOHIDProductIDKey as CFString
+                ) as? Int
+                self.publishGenerationIfNeeded(
+                    nextProductID.flatMap(Generation.fromProductID),
+                    productID: nextProductID
+                )
+                DispatchQueue.main.async { self.deviceCallback?(nextDevice) }
+            } else {
                 let productName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Unknown"
                 print("❌ Siri Remote disconnected: \(productName)")
                 // Record the moment we lost the last interface so the UI can
@@ -335,11 +440,8 @@ class RemoteDetector {
                 self.lastConnectedAt = now
                 UserDefaults.standard.set(now, forKey: Self.lastConnectedAtKey)
                 self.currentDevice = nil
-                if self.lastGeneration != nil {
-                    self.lastGeneration = nil
-                    let cb = self.onGenerationChange
-                    DispatchQueue.main.async { cb?(nil) }
-                }
+                self.currentPhysicalKey = nil
+                self.publishGenerationIfNeeded(nil, productID: productID)
                 DispatchQueue.main.async {
                     self.deviceCallback?(nil)
                 }

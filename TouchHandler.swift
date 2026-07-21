@@ -50,6 +50,10 @@ class TouchHandler {
 
     /// Single-finger cursor multiplier; adjustable live from the settings window.
     var cursorScale: CGFloat = 500.0
+
+    /// Trackpad mode: "mouse" = cursor control (no swipe actions);
+    /// "gesture" = swipe shortcuts only (no cursor movement).
+    var trackpadMode: String = "mouse"
     
     private var lastTouchPosition: CGPoint?
     private var lastTouchCount = 0
@@ -264,6 +268,18 @@ class TouchHandler {
         avgY /= Float(activeTouchCount)
         
         let currentPos = CGPoint(x: CGFloat(avgX), y: CGFloat(avgY))
+
+        // The physical Select click is also the gyro drag trigger. While it is
+        // held, finger pressure changes the reported contact centroid even if
+        // the finger is not intentionally moving. Feeding that noise into the
+        // cursor at the same time as gyro input makes a drag wander or jump.
+        // Keep consuming frames so release resumes from the current contact
+        // position, but let gyro be the only cursor source during the hold.
+        if cursorController.isClickActive {
+            lastTouchPosition = currentPos
+            lastTouchCount = activeTouchCount
+            return
+        }
         
         // Handle touch start
         if lastTouchPosition == nil {
@@ -281,17 +297,22 @@ class TouchHandler {
         
         // Process based on finger count: 1 finger = cursor, 2 fingers = scroll
         if activeTouchCount == 1 && lastTouchCount == 1 {
-            let clamped = moveCursor(deltaX: deltaX, deltaY: deltaY)
-            // Only advance touch tracking if cursor wasn't clamped in that direction
-            if let lastPos = lastTouchPosition {
-                let adjustedDeltaX = clamped.clampedX ? 0 : deltaX
-                let adjustedDeltaY = clamped.clampedY ? 0 : deltaY
-                lastTouchPosition = CGPoint(
-                    x: lastPos.x + adjustedDeltaX,
-                    y: lastPos.y + adjustedDeltaY
-                )
-            } else {
+            // In gesture mode, skip cursor movement entirely.
+            if trackpadMode == "gesture" {
                 lastTouchPosition = currentPos
+            } else {
+                let clamped = moveCursor(deltaX: deltaX, deltaY: deltaY)
+                // Only advance touch tracking if cursor wasn't clamped in that direction
+                if let lastPos = lastTouchPosition {
+                    let adjustedDeltaX = clamped.clampedX ? 0 : deltaX
+                    let adjustedDeltaY = clamped.clampedY ? 0 : deltaY
+                    lastTouchPosition = CGPoint(
+                        x: lastPos.x + adjustedDeltaX,
+                        y: lastPos.y + adjustedDeltaY
+                    )
+                } else {
+                    lastTouchPosition = currentPos
+                }
             }
         } else if activeTouchCount == 2 && lastTouchCount == 2 {
             // Two fingers: always scroll regardless of mode
@@ -323,7 +344,8 @@ class TouchHandler {
 
         // Swipe detection (flick). Fires before tap check; distance threshold is well above
         // tapMaxDistance, so a swipe can never also register as a tap.
-        if duration < swipeMaxDuration && movement > swipeMinDistance {
+        // In mouse mode, swipes are ignored (trackpad is purely a cursor device).
+        if trackpadMode == "gesture" && duration < swipeMaxDuration && movement > swipeMinDistance {
             let absDx = abs(dx), absDy = abs(dy)
             let direction: SwipeDirection?
             if absDx > absDy * swipeAxisRatio {
@@ -342,7 +364,7 @@ class TouchHandler {
             }
         }
 
-        if duration < tapMaxDuration && movement < tapMaxDistance {
+        if trackpadMode == "mouse" && duration < tapMaxDuration && movement < tapMaxDistance {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.cursorController.performClick()

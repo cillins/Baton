@@ -5,7 +5,8 @@ import {
   isNative, requestInitialState, listInstalledApps,
   setButtonMapping, setSwipeMapping, setScrollSpeed, setGyroSettings, setTrackpadSensitivity,
   resetMappings, setCustomText, setCustomKey,
-  setCurrentProfile, createProfile as createProfileBridge, deleteProfile as deleteProfileBridge, renameProfile as renameProfileBridge, setProfileMapping,
+  setCurrentProfile, createProfile as createProfileBridge, deleteProfile as deleteProfileBridge, renameProfile as renameProfileBridge, setProfileMapping, resetProfile as resetProfileBridge,
+  setTrackpadMode as setTrackpadModeBridge, requestProfileEdit,
   addAppPreset, removeAppPreset, setAppPresetProfile,
 } from './bridge'
 import Window from './components/Window'
@@ -60,6 +61,9 @@ export default function App() {
   const [version, setVersion] = useState('0.1.0 (1)')
   // Real mapping state pushed from Swift (null until first setMappings call).
   const [mappings, setMappings] = useState(null)
+  // Separate mappings for the edit modal (pushed via setEditMappings, does NOT
+  // activate the profile so trackpadMode stays unchanged).
+  const [editMappings, setEditMappings] = useState(null)
   // Profile being edited in the profile-edit modal. null = modal closed.
   const [editingProfileId, setEditingProfileId] = useState(null)
   // When non-null, App will open the modal on the next mappings update once a
@@ -133,6 +137,7 @@ export default function App() {
       if (['auto', 'light', 'dark'].includes(ap)) setAppearance(ap)
     }
     window.batonNative.setMappingsHandler = (m) => setMappings(m)
+    window.batonNative.setEditMappingsHandler = (m) => setEditMappings(m)
     window.batonNative.setAvailableAppsHandler = (apps) => setAvailableApps(apps || [])
     requestInitialState()
     if (isNative) listInstalledApps()
@@ -140,19 +145,21 @@ export default function App() {
       window.batonNative.setStateHandler = null
       window.batonNative.setAppearanceHandler = null
       window.batonNative.setMappingsHandler = null
+      window.batonNative.setEditMappingsHandler = null
       window.batonNative.setAvailableAppsHandler = null
     }
   }, [])
 
   // After 新建配置…, Swift generates the new profile id and pushes the
   // updated mappings. Once a new profile matching the pending name appears,
-  // make it active and open the edit modal.
+  // open the edit modal (and activate it since it's brand-new).
   useEffect(() => {
     if (!pendingNewProfileName || !mappings) return
     const created = mappings.profiles.find(p => p.name === pendingNewProfileName && !p.builtin)
     if (!created) return
     setEditingProfileId(created.id)
     setCurrentProfile(created.id)
+    requestProfileEdit(created.id)
     setPendingNewProfileName(null)
   }, [mappings, pendingNewProfileName])
 
@@ -260,17 +267,27 @@ function relativeTime(iso) {
 
   const addApp = () => showToast('在弹出的应用选取器中选择一个 App，即可为它指定映射模板')
 
-  // Real mapping writes (native mode): target the active profile so the
-  // change persists with the profile. Swift re-pushes the canonical state.
+  // Real mapping writes (native mode): target the editing profile when the
+  // modal is open, otherwise the active profile. Swift re-pushes state.
   const handleSetButton = (key, action) => {
-    if (!profile) return
-    setMappings(m => m && { ...m, buttons: m.buttons.map(b => b.key === key ? { ...b, action } : b) })
-    setProfileMapping(profile.id, 'button', key, action)
+    const targetId = editingProfileId || profile?.id
+    if (!targetId) return
+    if (editingProfileId) {
+      setEditMappings(m => m && { ...m, buttons: m.buttons.map(b => b.key === key ? { ...b, action } : b) })
+    } else {
+      setMappings(m => m && { ...m, buttons: m.buttons.map(b => b.key === key ? { ...b, action } : b) })
+    }
+    setProfileMapping(targetId, 'button', key, action)
   }
   const handleSetSwipe = (key, action) => {
-    if (!profile) return
-    setMappings(m => m && { ...m, swipes: m.swipes.map(s => s.key === key ? { ...s, action } : s) })
-    setProfileMapping(profile.id, 'swipe', key, action)
+    const targetId = editingProfileId || profile?.id
+    if (!targetId) return
+    if (editingProfileId) {
+      setEditMappings(m => m && { ...m, swipes: m.swipes.map(s => s.key === key ? { ...s, action } : s) })
+    } else {
+      setMappings(m => m && { ...m, swipes: m.swipes.map(s => s.key === key ? { ...s, action } : s) })
+    }
+    setProfileMapping(targetId, 'swipe', key, action)
   }
   const handleSetScrollSpeed = (speed) => {
     setMappings(m => m && { ...m, scrollSpeed: speed })
@@ -299,19 +316,22 @@ function relativeTime(iso) {
   const handleResetProfile = (id) => {
     const p = profiles.find(x => x.id === id)
     if (!p) return
-    ;(mappings?.buttons || []).forEach(b => setProfileMapping(id, 'button', b.key, 'None'))
-    ;(mappings?.swipes || []).forEach(s => setProfileMapping(id, 'swipe', s.key, 'None'))
+    resetProfileBridge(id)
     showToast(`已恢复「${p.name}」的默认映射`)
   }
-  // Open the profile-edit modal for the given profile; the row becomes the
-  // active profile while the modal is open so its edits apply live.
+  // Open the profile-edit modal for the given profile. Does NOT activate the
+  // profile — just requests its mappings for display/editing in the modal.
   const handleEditProfile = (id) => {
     setEditingProfileId(id)
-    setCurrentProfile(id)
+    requestProfileEdit(id)
   }
-  const handleCloseModal = () => setEditingProfileId(null)
+  const handleCloseModal = () => {
+    setEditingProfileId(null)
+    setEditMappings(null)
+  }
   const handleSetCustomText = (target, key, text) => {
-    setMappings(m => m && {
+    const setter = editingProfileId ? setEditMappings : setMappings
+    setter(m => m && {
       ...m,
       [target === 'button' ? 'buttons' : 'swipes']: m[target === 'button' ? 'buttons' : 'swipes']
         .map(r => r.key === key ? { ...r, customText: text } : r),
@@ -319,12 +339,20 @@ function relativeTime(iso) {
     setCustomText(target, key, text)
   }
   const handleSetCustomKey = (target, key, combo) => {
-    setMappings(m => m && {
+    const setter = editingProfileId ? setEditMappings : setMappings
+    setter(m => m && {
       ...m,
       [target === 'button' ? 'buttons' : 'swipes']: m[target === 'button' ? 'buttons' : 'swipes']
         .map(r => r.key === key ? { ...r, customKey: combo } : r),
     })
     setCustomKey(target, key, combo)
+  }
+  const handleSetTrackpadMode = (profileId, mode) => {
+    setTrackpadModeBridge(profileId, mode)
+    setMappings(m => m && { ...m, profiles: (m.profiles || []).map(p => p.id === profileId ? { ...p, trackpadMode: mode } : p) })
+    if (editingProfileId === profileId) {
+      setEditMappings(m => m && { ...m, trackpadMode: mode })
+    }
   }
 
   return (
@@ -385,6 +413,8 @@ function relativeTime(iso) {
                     editingProfileId={editingProfileId}
                     onSetCustomText={handleSetCustomText}
                     onSetCustomKey={handleSetCustomKey}
+                    onSetTrackpadMode={handleSetTrackpadMode}
+                    editMappings={editMappings}
                   />
                 )}
                 {pane === 'apps' && (

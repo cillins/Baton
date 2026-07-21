@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1784386323510,
+  "lastScanned": 1784484356485,
   "projectRoot": "/Users/cillin/Code/Baton",
   "techStack": {
     "languages": [],
@@ -36,14 +36,14 @@
       "path": "Baton.app",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1784386323504,
+      "lastAccessed": 1784484356480,
       "keyFiles": []
     },
     "Baton.iconset": {
       "path": "Baton.iconset",
       "purpose": null,
       "fileCount": 10,
-      "lastAccessed": 1784386323504,
+      "lastAccessed": 1784484356480,
       "keyFiles": [
         "icon_128x128.png",
         "icon_128x128@2x.png",
@@ -56,14 +56,14 @@
       "path": "BleProbe.app",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1784386323504,
+      "lastAccessed": 1784484356480,
       "keyFiles": []
     },
     "Resources": {
       "path": "Resources",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1784386323504,
+      "lastAccessed": 1784484356480,
       "keyFiles": [
         "StatusIcon.png"
       ]
@@ -72,7 +72,7 @@
       "path": "mic-spike",
       "purpose": null,
       "fileCount": 3,
-      "lastAccessed": 1784386323505,
+      "lastAccessed": 1784484356480,
       "keyFiles": [
         "main.swift",
         "mic-spike",
@@ -83,7 +83,7 @@
       "path": "web",
       "purpose": null,
       "fileCount": 4,
-      "lastAccessed": 1784386323505,
+      "lastAccessed": 1784484356480,
       "keyFiles": [
         "index.html",
         "package-lock.json",
@@ -95,7 +95,7 @@
       "path": "web/dist",
       "purpose": "Distribution/build output",
       "fileCount": 1,
-      "lastAccessed": 1784386323505,
+      "lastAccessed": 1784484356481,
       "keyFiles": [
         "index.html"
       ]
@@ -104,14 +104,14 @@
       "path": "web/node_modules",
       "purpose": "Dependencies",
       "fileCount": 1,
-      "lastAccessed": 1784386323505,
+      "lastAccessed": 1784484356481,
       "keyFiles": []
     },
     "web/src": {
       "path": "web/src",
       "purpose": "Source code",
       "fileCount": 6,
-      "lastAccessed": 1784386323505,
+      "lastAccessed": 1784484356481,
       "keyFiles": [
         "App.jsx",
         "art.js",
@@ -121,279 +121,303 @@
   },
   "hotPaths": [
     {
-      "path": "SettingsWindowController.swift",
-      "accessCount": 109,
-      "lastAccessed": 1784399631134,
-      "type": "file"
-    },
-    {
       "path": "MenuBarManager.swift",
-      "accessCount": 86,
-      "lastAccessed": 1784399634106,
+      "accessCount": 113,
+      "lastAccessed": 1784560104204,
       "type": "file"
     },
     {
-      "path": "web/src/App.jsx",
-      "accessCount": 76,
-      "lastAccessed": 1784400090845,
+      "path": "CLAUDE.md",
+      "accessCount": 18,
+      "lastAccessed": 1784550058967,
+      "type": "file"
+    },
+    {
+      "path": "SettingsWindowController.swift",
+      "accessCount": 17,
+      "lastAccessed": 1784556289776,
       "type": "file"
     },
     {
       "path": "SiriRemoteApp.swift",
-      "accessCount": 43,
-      "lastAccessed": 1784399638361,
+      "accessCount": 14,
+      "lastAccessed": 1784549975806,
       "type": "file"
     },
     {
-      "path": "RemoteInputHandler.swift",
-      "accessCount": 36,
-      "lastAccessed": 1784393452264,
+      "path": "SettingsUI/Components/SliderRow.swift",
+      "accessCount": 14,
+      "lastAccessed": 1784560574483,
       "type": "file"
     },
     {
-      "path": "RemoteDetector.swift",
-      "accessCount": 29,
-      "lastAccessed": 1784397614918,
-      "type": "file"
-    },
-    {
-      "path": "web/src/components/ButtonsPane.jsx",
-      "accessCount": 27,
-      "lastAccessed": 1784400030381,
+      "path": "SettingsUI/SettingsViewModel.swift",
+      "accessCount": 13,
+      "lastAccessed": 1784559758962,
       "type": "file"
     },
     {
       "path": "web/src/styles.css",
-      "accessCount": 23,
-      "lastAccessed": 1784399962485,
+      "accessCount": 12,
+      "lastAccessed": 1784554876058,
       "type": "file"
     },
     {
-      "path": "PopoverView.swift",
-      "accessCount": 18,
-      "lastAccessed": 1784305626295,
+      "path": "SettingsUI/RemoteArt.swift",
+      "accessCount": 12,
+      "lastAccessed": 1784559828960,
       "type": "file"
     },
     {
-      "path": "TouchHandler.swift",
-      "accessCount": 14,
-      "lastAccessed": 1784388696509,
+      "path": "SettingsUI/Components/MapRow.swift",
+      "accessCount": 11,
+      "lastAccessed": 1784559896355,
       "type": "file"
     },
     {
-      "path": "web/src/bridge.js",
-      "accessCount": 14,
-      "lastAccessed": 1784399935326,
+      "path": "SettingsUI/Panes/OverviewPane.swift",
+      "accessCount": 10,
+      "lastAccessed": 1784559718783,
       "type": "file"
     },
     {
-      "path": "web/src/components/SettingsPane.jsx",
-      "accessCount": 13,
-      "lastAccessed": 1784400086286,
+      "path": "SettingsUI/Panes/SidebarView.swift",
+      "accessCount": 10,
+      "lastAccessed": 1784559810059,
+      "type": "file"
+    },
+    {
+      "path": "SettingsUI/Components/KeyValueRow.swift",
+      "accessCount": 10,
+      "lastAccessed": 1784560534627,
+      "type": "file"
+    },
+    {
+      "path": "SettingsUI/Components/GroupCard.swift",
+      "accessCount": 8,
+      "lastAccessed": 1784559733235,
+      "type": "file"
+    },
+    {
+      "path": "SettingsUI/Panes/DetailHeaderView.swift",
+      "accessCount": 8,
+      "lastAccessed": 1784559810164,
+      "type": "file"
+    },
+    {
+      "path": "create_app_bundle.sh",
+      "accessCount": 7,
+      "lastAccessed": 1784550207881,
       "type": "file"
     },
     {
       "path": "Package.swift",
-      "accessCount": 11,
-      "lastAccessed": 1784387181944,
-      "type": "file"
-    },
-    {
-      "path": "web/src/components/DetailHeader.jsx",
-      "accessCount": 11,
-      "lastAccessed": 1784398312324,
-      "type": "file"
-    },
-    {
-      "path": "AudioProbe.swift",
-      "accessCount": 8,
-      "lastAccessed": 1784382301308,
-      "type": "file"
-    },
-    {
-      "path": "BleBatteryMonitor.swift",
-      "accessCount": 8,
-      "lastAccessed": 1784398288172,
-      "type": "file"
-    },
-    {
-      "path": "SettingsView.swift",
       "accessCount": 7,
-      "lastAccessed": 1784300950153,
-      "type": "file"
-    },
-    {
-      "path": "MotionCapture.swift",
-      "accessCount": 7,
-      "lastAccessed": 1784393513427,
-      "type": "file"
-    },
-    {
-      "path": "web/src/components/OverviewPane.jsx",
-      "accessCount": 7,
-      "lastAccessed": 1784398309394,
+      "lastAccessed": 1784554640569,
       "type": "file"
     },
     {
       "path": "web/src/components/ProfileEditModal.jsx",
       "accessCount": 6,
-      "lastAccessed": 1784400061081,
+      "lastAccessed": 1784554889948,
       "type": "file"
     },
     {
-      "path": "MotionProbe.swift",
-      "accessCount": 5,
-      "lastAccessed": 1784383823599,
+      "path": "SettingsUI/Components/BatteryIndicator.swift",
+      "accessCount": 6,
+      "lastAccessed": 1784559429806,
       "type": "file"
     },
     {
-      "path": "web/src/data.js",
+      "path": "web/src/components/DetailHeader.jsx",
       "accessCount": 5,
-      "lastAccessed": 1784396010002,
+      "lastAccessed": 1784554725061,
+      "type": "file"
+    },
+    {
+      "path": "web/src/App.jsx",
+      "accessCount": 5,
+      "lastAccessed": 1784554876003,
+      "type": "file"
+    },
+    {
+      "path": "web/src/components/Window.jsx",
+      "accessCount": 5,
+      "lastAccessed": 1784554876112,
       "type": "file"
     },
     {
       "path": "web/src/components/AppsPane.jsx",
       "accessCount": 5,
-      "lastAccessed": 1784399925656,
+      "lastAccessed": 1784554882306,
+      "type": "file"
+    },
+    {
+      "path": "web/src/components/OverviewPane.jsx",
+      "accessCount": 5,
+      "lastAccessed": 1784554882320,
       "type": "file"
     },
     {
       "path": "web/src/components/Sidebar.jsx",
       "accessCount": 5,
-      "lastAccessed": 1784399938847,
+      "lastAccessed": 1784554882372,
       "type": "file"
     },
     {
-      "path": "ble_probe.swift",
+      "path": "web/src/components/ButtonsPane.jsx",
+      "accessCount": 5,
+      "lastAccessed": 1784554882428,
+      "type": "file"
+    },
+    {
+      "path": "web/src/components/SensitivityPane.jsx",
+      "accessCount": 5,
+      "lastAccessed": 1784554889916,
+      "type": "file"
+    },
+    {
+      "path": "web/src/components/SettingsPane.jsx",
+      "accessCount": 5,
+      "lastAccessed": 1784554890054,
+      "type": "file"
+    },
+    {
+      "path": "SettingsUI/Theme.swift",
+      "accessCount": 5,
+      "lastAccessed": 1784559802886,
+      "type": "file"
+    },
+    {
+      "path": "SettingsUI/Components/MacSwitch.swift",
+      "accessCount": 5,
+      "lastAccessed": 1784559817162,
+      "type": "file"
+    },
+    {
+      "path": "SettingsUI/Components/KeyRecorderButton.swift",
+      "accessCount": 5,
+      "lastAccessed": 1784559817200,
+      "type": "file"
+    },
+    {
+      "path": "Resources/status-icon.svg",
       "accessCount": 4,
-      "lastAccessed": 1784266523127,
+      "lastAccessed": 1784529829807,
       "type": "file"
     },
     {
-      "path": "create_app_bundle.sh",
+      "path": "web/src/components/Switch.jsx",
       "accessCount": 4,
-      "lastAccessed": 1784279513369,
-      "type": "file"
-    },
-    {
-      "path": "BleAudioProbe.swift",
-      "accessCount": 4,
-      "lastAccessed": 1784311543689,
-      "type": "file"
-    },
-    {
-      "path": "web/src/art.js",
-      "accessCount": 4,
-      "lastAccessed": 1784312554942,
-      "type": "file"
-    },
-    {
-      "path": "CursorController.swift",
-      "accessCount": 4,
-      "lastAccessed": 1784393631231,
-      "type": "file"
-    },
-    {
-      "path": "MediaKeyInterceptor.swift",
-      "accessCount": 3,
-      "lastAccessed": 1784274804292,
-      "type": "file"
-    },
-    {
-      "path": "MediaController.swift",
-      "accessCount": 3,
-      "lastAccessed": 1784274804848,
-      "type": "file"
-    },
-    {
-      "path": "MenuBarPopover.swift",
-      "accessCount": 3,
-      "lastAccessed": 1784305271901,
-      "type": "file"
-    },
-    {
-      "path": "web/src/components/Window.jsx",
-      "accessCount": 3,
-      "lastAccessed": 1784306282691,
+      "lastAccessed": 1784554890002,
       "type": "file"
     },
     {
       "path": "web/src/components/SliderRow.jsx",
+      "accessCount": 4,
+      "lastAccessed": 1784554890033,
+      "type": "file"
+    },
+    {
+      "path": "SettingsUI/Components/SegmentedTabs.swift",
+      "accessCount": 4,
+      "lastAccessed": 1784559810112,
+      "type": "file"
+    },
+    {
+      "path": "RemoteInputHandler.swift",
       "accessCount": 3,
-      "lastAccessed": 1784399932429,
+      "lastAccessed": 1784485370936,
       "type": "file"
     },
     {
-      "path": "HyperVibe.entitlements",
-      "accessCount": 2,
-      "lastAccessed": 1784275075179,
+      "path": "web/src/components/Toast.jsx",
+      "accessCount": 3,
+      "lastAccessed": 1784554889976,
       "type": "file"
     },
     {
-      "path": "main.swift",
-      "accessCount": 2,
-      "lastAccessed": 1784279502615,
+      "path": "web/src/art.js",
+      "accessCount": 3,
+      "lastAccessed": 1784555735295,
       "type": "file"
     },
     {
-      "path": "web/vite.config.js",
+      "path": "MediaController.swift",
       "accessCount": 2,
-      "lastAccessed": 1784301573423,
+      "lastAccessed": 1784485117496,
       "type": "file"
     },
     {
-      "path": "mic-spike/main.swift",
+      "path": "MediaKeyInterceptor.swift",
       "accessCount": 2,
-      "lastAccessed": 1784314422729,
+      "lastAccessed": 1784485121099,
       "type": "file"
     },
     {
-      "path": "OneEuro.swift",
+      "path": "SystemVolume.swift",
       "accessCount": 2,
-      "lastAccessed": 1784386940327,
+      "lastAccessed": 1784485298728,
+      "type": "file"
+    },
+    {
+      "path": "web/src/components/MenuBar.jsx",
+      "accessCount": 2,
+      "lastAccessed": 1784549023760,
       "type": "file"
     },
     {
       "path": "README.md",
       "accessCount": 1,
-      "lastAccessed": 1784264390429,
+      "lastAccessed": 1784484388583,
       "type": "file"
     },
     {
-      "path": "SystemVolume.swift",
+      "path": "AGENTS.md",
       "accessCount": 1,
-      "lastAccessed": 1784264411090,
+      "lastAccessed": 1784484388714,
       "type": "file"
     },
     {
-      "path": "SiriRemote-Bridging-Header.h",
+      "path": "status-icon.svg",
       "accessCount": 1,
-      "lastAccessed": 1784264411111,
+      "lastAccessed": 1784528490788,
       "type": "file"
     },
     {
-      "path": "CLAUDE.md",
+      "path": "Resources/StatusIcon.png",
       "accessCount": 1,
-      "lastAccessed": 1784264481827,
+      "lastAccessed": 1784528494999,
       "type": "file"
     },
     {
-      "path": "web/src/components/MenuBar.jsx",
+      "path": "Resources/MenuBarIcon@2x.png",
       "accessCount": 1,
-      "lastAccessed": 1784304360217,
+      "lastAccessed": 1784528897310,
       "type": "file"
     },
     {
-      "path": "mic-spike/opus-bridge.h",
+      "path": "web/src/bridge.js",
       "accessCount": 1,
-      "lastAccessed": 1784314359026,
+      "lastAccessed": 1784548860112,
       "type": "file"
     },
     {
-      "path": "web/src/components/SensitivityPane.jsx",
+      "path": "web/src/data.js",
       "accessCount": 1,
-      "lastAccessed": 1784399985856,
+      "lastAccessed": 1784548899049,
+      "type": "file"
+    },
+    {
+      "path": "web/src/main.jsx",
+      "accessCount": 1,
+      "lastAccessed": 1784548899104,
+      "type": "file"
+    },
+    {
+      "path": "SettingsUI/Support/RelativeTime.swift",
+      "accessCount": 1,
+      "lastAccessed": 1784549765033,
       "type": "file"
     }
   ],

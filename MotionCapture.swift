@@ -18,7 +18,7 @@ import Foundation
 final class MotionCapture {
     /// Gyro rates in raw sensor units, delivered on the IOHID callback thread.
     /// (~50-90Hz while streaming.)
-    var onGyro: ((_ x: Int16, _ y: Int16, _ z: Int16) -> Void)?
+    var onGyro: ((_ x: Int16, _ y: Int16, _ z: Int16, _ timestamp: UInt64) -> Void)?
 
     private var attached: [IOHIDDevice] = []
     private var buffers: [UnsafeMutablePointer<UInt8>] = []
@@ -51,7 +51,7 @@ final class MotionCapture {
     }
 
     private func setReport(_ device: IOHIDDevice, _ payload: [UInt8], label: String) {
-        var bytes = payload
+        let bytes = payload
         let r = bytes.withUnsafeBufferPointer { ptr in
             IOHIDDeviceSetReport(device, kIOHIDReportTypeFeature, 255, ptr.baseAddress!, bytes.count)
         }
@@ -78,11 +78,15 @@ final class MotionCapture {
         // Layout: byte 0 = report ID (0x01), payload bytes 1-24.
         // Gyro X/Y/Z = signed LE int16 at payload 18-23 → buffer offsets 19-24.
         guard reportID == 1, length == 25 else { return }
+        // Timestamp at acquisition, before optional probe logging or a hop to
+        // the main queue. Main-thread scheduling latency must not change the
+        // angular distance represented by this sample.
+        let timestamp = mach_absolute_time()
         let x = Int16(bitPattern: UInt16(report[19]) | UInt16(report[20]) << 8)
         let y = Int16(bitPattern: UInt16(report[21]) | UInt16(report[22]) << 8)
         let z = Int16(bitPattern: UInt16(report[23]) | UInt16(report[24]) << 8)
         logFields(report, x: x, y: y, z: z)
-        onGyro?(x, y, z)
+        onGyro?(x, y, z, timestamp)
     }
 
     // MARK: - Field identification probe (--motion-fields)
