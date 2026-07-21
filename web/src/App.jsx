@@ -58,7 +58,7 @@ export default function App() {
   const [toast, setToast] = useState(null)
   const [flash, setFlash] = useState(false)
   const [connecting, setConnecting] = useState(false)
-  const [version, setVersion] = useState('0.1.0 (1)')
+  const [version, setVersion] = useState('1.0 (1)')
   // Real mapping state pushed from Swift (null until first setMappings call).
   const [mappings, setMappings] = useState(null)
   // Separate mappings for the edit modal (pushed via setEditMappings, does NOT

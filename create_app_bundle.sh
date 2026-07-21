@@ -91,12 +91,15 @@ chmod +x "${APP_BUNDLE}/Contents/MacOS/$APP_NAME"
 
 # Sign with hardened runtime + entitlements. Required on modern macOS (14+) for
 # IOHIDManager to deliver Bluetooth HID devices like the Siri Remote to the app.
-# Ad-hoc (`--sign -`) is used; for distribution, swap in a Developer ID identity.
+# Ad-hoc (`--sign -`) remains the default. Set BATON_SIGN_IDENTITY to an
+# Apple Development, Developer ID, or self-signed identity to keep the same
+# code-signing identity—and therefore TCC grants—across local rebuilds.
+SIGN_IDENTITY="${BATON_SIGN_IDENTITY:--}"
 if [ -f "Baton.entitlements" ]; then
-    echo "Signing with hardened runtime + entitlements..."
+    echo "Signing with hardened runtime + entitlements (identity: ${SIGN_IDENTITY})..."
     codesign --force --options=runtime \
         --entitlements "Baton.entitlements" \
-        --sign - \
+        --sign "$SIGN_IDENTITY" \
         "${APP_BUNDLE}"
     codesign -dvv "${APP_BUNDLE}" 2>&1 | grep -E "(flags|Identifier)" || true
 fi

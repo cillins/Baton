@@ -17,6 +17,7 @@ SWIFT_FILES=(
     "MediaController.swift"
     "MediaKeyInterceptor.swift"
     "TouchHandler.swift"
+    "RemoteTouchSurface.swift"
     "SystemVolume.swift"
     "AudioProbe.swift"
     "BleAudioProbe.swift"
@@ -48,6 +49,7 @@ SWIFT_FILES=(
     "SettingsUI/Panes/SettingsPane.swift"
     "SettingsUI/Panes/ProfileEditSheet.swift"
     "SettingsUI/Support/RelativeTime.swift"
+    "SettingsUI/Support/AppPreferences.swift"
 )
 
 # Find SDK path
@@ -89,6 +91,7 @@ swiftc \
     -framework AudioToolbox \
     -framework Carbon \
     -framework AppKit \
+    -framework ServiceManagement \
     -framework GameController \
     -framework MultitouchSupport
 

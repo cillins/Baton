@@ -10,8 +10,16 @@
 import AppKit
 import SwiftUI
 
-enum AppearanceMode: String, CaseIterable, Codable {
+enum AppearanceMode: String, CaseIterable, Codable, Hashable {
     case auto, light, dark
+
+    var displayName: String {
+        switch self {
+        case .auto:  return "跟随系统"
+        case .light: return "浅色"
+        case .dark:  return "深色"
+        }
+    }
 
     var nsAppearance: NSAppearance? {
         switch self {

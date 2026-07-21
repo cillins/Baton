@@ -123,17 +123,26 @@ struct MapRow: View {
     var options: [ButtonOptionVM]
     var readOnly: Bool = false
 
-    // Custom action wiring (only used when `action` is one of "Custom Text"
-    // / "Custom Key"). Mutating these commits through the same VM paths the
-    // pickers do.
+    // Custom action wiring. The editor is transient: selecting an edit command
+    // opens it, and a successful commit closes it while the popup's first item
+    // updates to the newly persisted result.
     var customText: Binding<String>?
     var customKey: Binding<KeyCombo?>?
     var onSetCustomText: ((String) -> Void)?
     var onSetCustomKey: ((KeyCombo) -> Void)?
     var onClearCustomKey: (() -> Void)?
 
-    private var isCustomText: Bool { action == "Custom Text" }
-    private var isCustomKey:  Bool { action == "Custom Key" }
+    private enum EditorMode {
+        case key, text
+    }
+
+    @State private var editorMode: EditorMode?
+    @State private var textDraft = ""
+    @FocusState private var textEditorFocused: Bool
+
+    private var usesEditCommands: Bool {
+        options.first?.raw == MappingEditOptionID.current
+    }
 
     var body: some View {
         // CSS .map-row: display grid, grid-template-columns 1.2fr 0.8fr 1fr,
@@ -153,25 +162,44 @@ struct MapRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .lineLimit(1)
             } third: {
-                MenuPicker(
-                    selection: $action,
-                    options: options,
-                    disabled: readOnly
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
+                if usesEditCommands {
+                    SelectField(
+                        selection: MappingEditOptionID.current,
+                        options: options.map { SelectFieldOption(id: $0.raw, title: $0.label) },
+                        disabled: readOnly,
+                        onSelect: beginEditing
+                    )
+                    .frame(height: 28)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    MenuPicker(
+                        selection: $action,
+                        options: options,
+                        disabled: readOnly
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .padding(.horizontal, 2)
             .padding(.vertical, 10)
-            if isCustomText, let binding = customText, !readOnly {
+            if editorMode == .text, !readOnly {
                 customEditor {
                     // CSS .prof-input: padding 5 8, bg --bg, border 1px --border,
                     // radius --radius-sm (8), font 13px, color --fg.
                     // .map-custom .prof-input { flex: 1 } overrides the 140px width.
                     TextField(
                         "输入要键入的文本，如 /compact 或一段提示词",
-                        text: binding,
-                        onCommit: { onSetCustomText?(binding.wrappedValue) }
+                        text: $textDraft,
+                        onCommit: commitText
                     )
+                    .focused($textEditorFocused)
+                    .onChange(of: textEditorFocused) { focused in
+                        if !focused, editorMode == .text { commitText() }
+                    }
+                    .onAppear {
+                        DispatchQueue.main.async { textEditorFocused = true }
+                    }
                     .textFieldStyle(.plain)
                     .font(BatonFont.text(size: 13))
                     .foregroundStyle(Color.batonFg)
@@ -180,13 +208,15 @@ struct MapRow: View {
                     .background(customEditorBackground)
                 }
             }
-            if isCustomKey, let keyBinding = customKey, !readOnly {
+            if editorMode == .key, let keyBinding = customKey, !readOnly {
                 customEditor {
                     KeyRecorderButton(
                         existing: keyBinding.wrappedValue?.label,
                         onCommit: { combo in
                             keyBinding.wrappedValue = combo
                             onSetCustomKey?(combo)
+                            action = ButtonAction.customKey.rawValue
+                            editorMode = nil
                         },
                         onClear: {
                             keyBinding.wrappedValue = nil
@@ -196,6 +226,30 @@ struct MapRow: View {
                 }
             }
         }
+    }
+
+    private func beginEditing(_ optionID: String) {
+        switch optionID {
+        case MappingEditOptionID.recordKey:
+            textEditorFocused = false
+            editorMode = .key
+        case MappingEditOptionID.inputText:
+            textDraft = customText?.wrappedValue ?? ""
+            editorMode = .text
+        default:
+            textEditorFocused = false
+            editorMode = nil
+        }
+    }
+
+    private func commitText() {
+        guard editorMode == .text else { return }
+        let text = textDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        editorMode = nil
+        textEditorFocused = false
+        guard !text.isEmpty else { return }
+        onSetCustomText?(text)
+        action = ButtonAction.customText.rawValue
     }
 
     @ViewBuilder

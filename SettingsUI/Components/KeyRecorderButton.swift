@@ -78,10 +78,8 @@ struct KeyRecorderButton: View {
     }
 }
 
-/// Monitors `NSEvent.local` for key events while installed. Notified with a
-/// `KeyCombo` on a valid press, or with nothing on Esc-no-mods. Returning
-/// nil from the local monitor swallows the event so the underlying text
-/// input (if any) doesn't see the recording keystroke.
+/// Monitors ordinary keyDown events locally. Top-row NX_SYSDEFINED keys are
+/// intercepted earlier and forwarded by MediaKeyInterceptor while recording.
 private struct KeyRecorderMonitor: NSViewRepresentable {
     var active: Bool
     var onComplete: (KeyCombo) -> Void
@@ -105,6 +103,8 @@ private struct KeyRecorderMonitor: NSViewRepresentable {
 
     final class Coordinator {
         private var monitor: Any?
+        private var eventTap: CFMachPort?
+        private var eventTapSource: CFRunLoopSource?
         private var active = false
         private var onComplete: ((KeyCombo) -> Void)?
         private var onCancel: (() -> Void)?
@@ -112,29 +112,30 @@ private struct KeyRecorderMonitor: NSViewRepresentable {
         func attach(active: Bool,
                     onComplete: @escaping (KeyCombo) -> Void,
                     onCancel: @escaping () -> Void) {
-            if active && self.monitor == nil {
+            if active && self.monitor == nil && self.eventTap == nil {
                 self.onComplete = onComplete
                 self.onCancel = onCancel
-                self.monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
-                    if Self.isOnlyModifier(event) { return event }
-                    if event.keyCode == kVK_Escape
-                        && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
-                        self.onCancel?()
-                        return nil
+                if !startEventTap() {
+                    self.monitor = NSEvent.addLocalMonitorForEvents(
+                        matching: [.keyDown, .flagsChanged]
+                    ) { [weak self] event in
+                        guard let self else { return event }
+                        return self.capture(event) ? nil : event
                     }
-                    let mods = Self.modifierNames(event.modifierFlags)
-                    let glyph = Self.glyph(event: event)
-                    let label = mods.map { Self.modGlyph($0) }.joined() + glyph
-                    let combo = KeyCombo(
-                        keyCode: Int(event.keyCode),
-                        modifiers: mods,
-                        label: label
+                }
+                MediaKeyInterceptor.recordingSystemKeyHandler = { [weak self] nxCode in
+                    guard let self else { return }
+                    self.onComplete?(
+                        KeyCombo(
+                            keyCode: -1,
+                            modifiers: [],
+                            label: Self.systemKeyLabel(nxCode),
+                            systemKeyCode: Int(nxCode)
+                        )
                     )
-                    self.onComplete?(combo)
-                    return nil
                 }
             }
-            if !active, self.monitor != nil {
+            if !active, self.monitor != nil || self.eventTap != nil {
                 detach()
             }
             self.active = active
@@ -145,10 +146,80 @@ private struct KeyRecorderMonitor: NSViewRepresentable {
         }
 
         func detach() {
+            MediaKeyInterceptor.recordingSystemKeyHandler = nil
+            if let eventTap {
+                CGEvent.tapEnable(tap: eventTap, enable: false)
+            }
+            if let eventTapSource {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
+            }
+            eventTap = nil
+            eventTapSource = nil
             if let monitor = monitor {
                 NSEvent.removeMonitor(monitor)
                 self.monitor = nil
             }
+        }
+
+        private func startEventTap() -> Bool {
+            let mask = (CGEventMask(1) << CGEventType.keyDown.rawValue)
+                | (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
+            guard let tap = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .headInsertEventTap,
+                options: .defaultTap,
+                eventsOfInterest: mask,
+                callback: { _, type, event, refcon in
+                    guard let refcon else { return Unmanaged.passUnretained(event) }
+                    let coordinator = Unmanaged<Coordinator>.fromOpaque(refcon).takeUnretainedValue()
+                    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                        if let tap = coordinator.eventTap {
+                            CGEvent.tapEnable(tap: tap, enable: true)
+                        }
+                        return Unmanaged.passUnretained(event)
+                    }
+                    guard let nsEvent = NSEvent(cgEvent: event) else {
+                        return Unmanaged.passUnretained(event)
+                    }
+                    return coordinator.capture(nsEvent) ? nil : Unmanaged.passUnretained(event)
+                },
+                userInfo: Unmanaged.passUnretained(self).toOpaque()
+            ) else { return false }
+
+            guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+                return false
+            }
+            eventTap = tap
+            eventTapSource = source
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            return true
+        }
+
+        /// Returns true when the event is part of capture and should not reach
+        /// the previously focused app/global-hotkey owner.
+        private func capture(_ event: NSEvent) -> Bool {
+            if event.type == .flagsChanged {
+                guard event.keyCode == kVK_Function,
+                      event.modifierFlags.contains(.function) else { return false }
+                onComplete?(KeyCombo(keyCode: kVK_Function, modifiers: ["fn"], label: "fn"))
+                return true
+            }
+            guard event.type == .keyDown else { return false }
+            if Self.isOnlyModifier(event) { return false }
+            if event.keyCode == kVK_Escape,
+               event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
+                onCancel?()
+                return true
+            }
+            let modifiers = Self.modifierNames(event.modifierFlags)
+            let label = modifiers.map { Self.modGlyph($0) }.joined() + Self.glyph(event: event)
+            onComplete?(KeyCombo(
+                keyCode: Int(event.keyCode),
+                modifiers: modifiers,
+                label: label
+            ))
+            return true
         }
 
         private static func isOnlyModifier(_ event: NSEvent) -> Bool {
@@ -183,6 +254,26 @@ private struct KeyRecorderMonitor: NSViewRepresentable {
         private static func glyph(event: NSEvent) -> String {
             let keyCode = Int(event.keyCode)
             switch keyCode {
+            case kVK_F1:            return "F1"
+            case kVK_F2:            return "F2"
+            case kVK_F3:            return "F3"
+            case kVK_F4:            return "F4"
+            case kVK_F5:            return "F5"
+            case kVK_F6:            return "F6"
+            case kVK_F7:            return "F7"
+            case kVK_F8:            return "F8"
+            case kVK_F9:            return "F9"
+            case kVK_F10:           return "F10"
+            case kVK_F11:           return "F11"
+            case kVK_F12:           return "F12"
+            case kVK_F13:           return "F13"
+            case kVK_F14:           return "F14"
+            case kVK_F15:           return "F15"
+            case kVK_F16:           return "F16"
+            case kVK_F17:           return "F17"
+            case kVK_F18:           return "F18"
+            case kVK_F19:           return "F19"
+            case kVK_F20:           return "F20"
             case kVK_Return:        return "⏎"
             case kVK_Tab:           return "⇥"
             case kVK_Delete:        return "⌫"
@@ -193,6 +284,11 @@ private struct KeyRecorderMonitor: NSViewRepresentable {
             case kVK_LeftArrow:     return "←"
             case kVK_RightArrow:    return "->"
             case kVK_Space:         return "␣"
+            case kVK_Home:          return "Home"
+            case kVK_End:           return "End"
+            case kVK_PageUp:        return "Page Up"
+            case kVK_PageDown:      return "Page Down"
+            case kVK_Help:          return "Help"
             default:
                 if let chars = event.charactersIgnoringModifiers, !chars.isEmpty {
                     let c = chars.first!
@@ -202,6 +298,26 @@ private struct KeyRecorderMonitor: NSViewRepresentable {
                     return String(c)
                 }
                 return "?"
+            }
+        }
+
+        private static func systemKeyLabel(_ code: Int32) -> String {
+            switch code {
+            case NX_KEYTYPE_SOUND_UP:              return "音量+"
+            case NX_KEYTYPE_SOUND_DOWN:            return "音量−"
+            case NX_KEYTYPE_BRIGHTNESS_UP:         return "亮度+"
+            case NX_KEYTYPE_BRIGHTNESS_DOWN:       return "亮度−"
+            case NX_KEYTYPE_MUTE:                  return "🔇"
+            case NX_KEYTYPE_EJECT:                 return "⏏"
+            case NX_KEYTYPE_PLAY:                  return "⏯"
+            case NX_KEYTYPE_NEXT, NX_KEYTYPE_FAST: return "⏭"
+            case NX_KEYTYPE_PREVIOUS, NX_KEYTYPE_REWIND: return "⏮"
+            case NX_KEYTYPE_ILLUMINATION_UP:       return "键盘亮度+"
+            case NX_KEYTYPE_ILLUMINATION_DOWN:     return "键盘亮度−"
+            case NX_KEYTYPE_ILLUMINATION_TOGGLE:   return "键盘灯"
+            case NX_KEYTYPE_LAUNCH_PANEL:          return "Launchpad"
+            case NX_KEYTYPE_VIDMIRROR:             return "显示器镜像"
+            default:                               return "功能键 \(code)"
             }
         }
     }

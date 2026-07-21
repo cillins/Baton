@@ -42,7 +42,7 @@ enum Generation: String {
         }
     }
 
-    /// Wire-format string the JS bridge expects (matches React `dev.art`).
+    /// Stable UI tag used by the native settings view and legacy web reference.
     var wireTag: String { rawValue }
 }
 
@@ -116,11 +116,17 @@ class RemoteDetector {
         IOHIDManagerRegisterDeviceRemovalCallback(manager, deviceRemovedCallback, Unmanaged.passUnretained(self).toOpaque())
 
         let openResult = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard openResult == kIOReturnSuccess else {
-            rmDebug(String(format: "⚠️ IOHIDManagerOpen failed (IOReturn=0x%X)", openResult))
-            return
+        if openResult == kIOReturnSuccess {
+            rmDebug("🛰 IOHIDManagerOpen success")
+        } else {
+            // Non-fatal: the Apple-vendor matching dictionaries may include
+            // keyboard/trackpad interfaces held by macOS. Matching callbacks
+            // and the per-device opens below do not require this broad open.
+            rmDebug(String(
+                format: "⚠️ IOHIDManagerOpen failed (IOReturn=0x%X) — continuing with per-device opens",
+                openResult
+            ))
         }
-        rmDebug("🛰 IOHIDManagerOpen success")
 
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
 
@@ -184,7 +190,7 @@ class RemoteDetector {
     }
 
     /// Display model name derived from product name + generation. Used as the
-    /// "型号" field in the React UI. Examples:
+    /// "型号" field in the settings UI. Examples:
     ///   "Siri Remote（第 1 代）"   for Gen 1
     ///   "Siri Remote（第 2 代）"   for Gen 2
     ///   "Siri Remote"             when generation is unknown

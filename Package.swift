@@ -24,6 +24,7 @@ let package = Package(
                 "MediaController.swift",
                 "MediaKeyInterceptor.swift",
                 "TouchHandler.swift",
+                "RemoteTouchSurface.swift",
                 "SystemVolume.swift",
                 "AudioProbe.swift",
                 "BleAudioProbe.swift",
@@ -51,14 +52,16 @@ let package = Package(
                 "SettingsUI/Panes/SensitivityPane.swift",
                 "SettingsUI/Panes/SettingsPane.swift",
                 "SettingsUI/Panes/ProfileEditSheet.swift",
-                "SettingsUI/Support/RelativeTime.swift"
+                "SettingsUI/Support/RelativeTime.swift",
+                "SettingsUI/Support/AppPreferences.swift"
             ],
             linkerSettings: [
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("Carbon"),
-                .linkedFramework("AppKit")
+                .linkedFramework("AppKit"),
+                .linkedFramework("ServiceManagement")
             ]
         )
     ]

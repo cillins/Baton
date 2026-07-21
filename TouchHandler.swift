@@ -151,22 +151,64 @@ class TouchHandler {
         stopDevice()
         findAndStartDevice()
     }
+
+    private static func parseDeviceID(_ value: String) -> UInt64? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.lowercased().hasPrefix("0x") {
+            return UInt64(trimmed.dropFirst(2), radix: 16)
+        }
+        return UInt64(trimmed)
+    }
     
     private func findAndStartDevice() {
         guard let cfArray = MTDeviceCreateList()?.takeRetainedValue() else { return }
         let deviceList = cfArray as [MTDevice]
-        // Find non-built-in device (Siri Remote)
+
+        // Optional escape hatch for unknown hardware/firmware combinations:
+        // defaults write com.baton.app trackpadDeviceID -string 0x<device-id>
+        let pinnedID = UserDefaults.standard.string(forKey: "trackpadDeviceID")
+            .flatMap(Self.parseDeviceID)
+        var chosen: (device: MTDevice, area: Int64)?
+
         for dev in deviceList {
-            if !MTDeviceIsBuiltIn(dev) {
+            var deviceID: UInt64 = 0
+            var width: Int32 = 0
+            var height: Int32 = 0
+            MTDeviceGetDeviceID(dev, &deviceID)
+            MTDeviceGetSensorSurfaceDimensions(dev, &width, &height)
+            let builtIn = MTDeviceIsBuiltIn(dev)
+            rmDebug(String(
+                format: "📱 MT candidate id=0x%llX surface=%dx%d builtIn=%@",
+                deviceID, width, height, builtIn ? "yes" : "no"
+            ))
+
+            if let pinnedID, deviceID == pinnedID {
+                rmDebug(String(format: "📱 selecting pinned MT device 0x%llX", deviceID))
                 startDevice(dev)
                 return
             }
+            guard pinnedID == nil else { continue }
+            guard RemoteTouchSurface.isEligible(width: width, height: height, builtIn: builtIn) else {
+                continue
+            }
+            let area = Int64(width) * Int64(height)
+            if let current = chosen {
+                if area < current.area {
+                    chosen = (dev, area)
+                }
+            } else {
+                chosen = (dev, area)
+            }
         }
-        // Fallback: use second device if available
-        if deviceList.count > 1 {
-            startDevice(deviceList[1])
-        } else if device != nil {
-            // Clear stale ref so next checkAndReconnect will retry when the remote reappears in the list.
+
+        if let chosen {
+            startDevice(chosen.device)
+            return
+        }
+
+        // Fail closed: never adopt an unrelated Magic Trackpad just because it
+        // is the only external multitouch device currently visible.
+        if device != nil {
             stopDevice()
         }
     }
@@ -180,7 +222,9 @@ class TouchHandler {
         MTDeviceStart(dev, 0)
         // Reset so we don't immediately re-enter starvation and restart every 2s when no touches yet.
         lastTouchTime = mach_absolute_time()
-        print("📱 Trackpad device connected and started")
+        var deviceID: UInt64 = 0
+        MTDeviceGetDeviceID(dev, &deviceID)
+        rmDebug(String(format: "📱 Trackpad device connected and started (id=0x%llX)", deviceID))
     }
     
     private func stopDevice() {
@@ -189,7 +233,7 @@ class TouchHandler {
         MTDeviceStop(dev)
         device = nil
         
-        print("📱 Trackpad device disconnected")
+        rmDebug("📱 Trackpad device disconnected")
         lastTouchPosition = nil
         lastTouchCount = 0
         hadMultipleFingersInSession = false

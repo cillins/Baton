@@ -4,7 +4,7 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 ## Project
 
-**Baton** — a macOS menu-bar app (`LSUIElement`, no Dock icon) that maps an Apple Siri Remote's buttons, trackpad gestures, and gyro onto Claude Code workflows. Fork of [Remotastic](https://github.com/lauschue/Remotastic). All Swift sources live flat at the repo root; the settings UI is a React SPA in `web/`. No Xcode project, no test suite.
+**Baton** — a macOS menu-bar app (`LSUIElement`, no Dock icon) that maps Apple Siri Remote models including A1513 and A1962 onto mouse, keyboard, media, presentation, and Claude Code workflows. Fork of [Remotastic](https://github.com/lauschue/Remotastic). Core Swift sources live flat at the repo root; the production settings UI is native SwiftUI under `SettingsUI/`. The React app in `web/` is reference-only. No Xcode project, no test suite.
 
 ## Build & Run
 
@@ -12,17 +12,17 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 # 1. Native binary (single swiftc invocation → ./Baton)
 ./build.sh
 
-# 2. Settings UI (React 18 + Vite → web/dist/, inlined single-file HTML)
-cd web && npm install && npm run build
-
-# 3. Package .app bundle (binary + web/dist + icons + ad-hoc codesign)
+# 2. Package .app bundle (binary + icons + ad-hoc codesign)
 ./create_app_bundle.sh
 
-# 4. Run
+# 3. Run
 open Baton.app          # proper app (needed for TCC permissions)
 ./Baton                 # raw binary (menu bar only)
 
-# Dev mode for settings UI (bridge is no-op, falls back to localStorage)
+# Canonical local kill + build + package + launch verification
+./script/build_and_run.sh --verify
+
+# Optional: preview the legacy React design reference
 cd web && npm run dev
 
 # Standalone BLE research tool
@@ -32,8 +32,10 @@ cd web && npm run dev
 **Critical build notes:**
 - `build.sh` is the **only** real build. It links the private `MultitouchSupport` framework via `-Xlinker -F -Xlinker /System/Library/PrivateFrameworks` and bridges C via `SiriRemote-Bridging-Header.h` → `MultitouchSupport.h`. `Package.swift` exists for IDE indexing but **cannot link private frameworks** — never use `swift build`.
 - When adding a new `.swift` file, add it to **both** the `SWIFT_FILES` array in `build.sh` and the `sources` list in `Package.swift`.
-- `web/` uses `vite-plugin-singlefile` to inline all JS/CSS into one HTML file — WKWebView loads via `file://` so there must be no external asset references.
-- Requires: macOS 11+, Xcode CLI Tools (`xcode-select --install`), arm64 or x86_64 (auto-detected).
+- `SettingsUI/` is the production UI. `web/` is kept only as a visual reference and is not bundled.
+- `RemoteTouchSurface.swift` prevents Magic Trackpads from being adopted as the remote touch surface. Verify with `Tests/run-tests.sh` and `Tests/run-touch-surface-probe.sh`.
+- `create_app_bundle.sh` accepts optional `BATON_SIGN_IDENTITY`; when unset it preserves the ad-hoc signing behavior.
+- Requires: macOS 12+, Xcode CLI Tools (`xcode-select --install`), arm64 or x86_64 (auto-detected).
 - Runtime TCC permissions: **Accessibility** + **Input Monitoring** + **Bluetooth**. Ad-hoc signing ties grants to binary hash — rebuilds require re-approval.
 - Diagnostic log: `/tmp/baton.log` via `rmDebug()` (defined in `RemoteDetector.swift`). NSLog is redacted under hardened runtime; always use `rmDebug`, never `print`, for HID/TCC diagnostics.
 
@@ -110,7 +112,7 @@ Central store + executor for all button/swipe assignments:
 - `SwipeAction` enum: slash commands typed via `CGEvent.keyboardSetUnicodeString` — **never sends Enter** (user confirms). Trailing-space policy: arg-taking commands (`/btw`, `/schedule`, `ultrathink`) get a space; standalone ones don't.
 - Custom actions: `customText` (arbitrary string typed) and `customKey` (keyCode + modifiers dict) per button/swipe, stored in separate UserDefaults keys.
 - **Profiles**: named snapshots of button+swipe mappings. `AppPreset` binds a bundleId → profileId; `NSWorkspace.didActivateApplicationNotification` flips the active profile when a bound app becomes frontmost.
-- Persistence: UserDefaults keys `buttonMappings`, `swipeMappings`, `profiles`, `appPresets`, `customButtonTexts`, `customSwipeTexts`, `customButtonKeyCombos`, `customSwipeKeyCombos`. Schema versioning via `buttonMappingsSchema` (currently v4). When changing defaults or removing actions, bump schema and add migration in `loadMappings()`.
+- Persistence: UserDefaults keys `buttonMappings`, `swipeMappings`, `profiles`, `appPresets`, `customButtonTexts`, `customSwipeTexts`, `customButtonKeyCombos`, `customSwipeKeyCombos`. Schema versioning via `buttonMappingsSchema` (currently v5) and `profileSchema` (currently v10). When changing defaults or built-in profiles, bump the appropriate schema and preserve user-created profiles.
 
 ### Gyro cursor (gen 1 only) — `MotionCapture` + `RemoteInputHandler.handleGyro`
 
@@ -122,16 +124,13 @@ Central store + executor for all button/swipe assignments:
 
 IOHID doesn't expose battery for BT HID devices. A parallel CoreBluetooth GATT connection reads the standard Battery Service (0x180F / 0x2A19). macOS allows multiple BLE links to the same peripheral, so HID keeps working. `refresh()` is called on connect + 2s retry to handle GATT-visibility lag.
 
-### Settings UI — `SettingsWindowController` + `web/`
+### Settings UI — `SettingsWindowController` + `SettingsUI/`
 
-- React 18 + Vite SPA rendered in WKWebView (fixed 1020×684 window, `fullSizeContentView` with custom traffic lights and drag overlay).
-- Built as single inlined HTML (`vite-plugin-singlefile`) to avoid CORS on `file://`.
-- **Bridge protocol:**
-  - JS→Swift: `window.webkit.messageHandlers.bat.postMessage({type, ...})` — handled by `WebBridge.userContentController(_:didReceive:)`.
-  - Swift→JS: `window.batonNative.setState(state)`, `.setMappings(mappings)`, `.setAppearance(ap)`, `.setAvailableApps(apps)` — React installs handlers on mount.
-- In browser dev mode (`npm run dev`), `isNative` is false; bridge calls are no-ops and React uses localStorage + mock data from `data.js`.
-- `pushMappings()` sends the full canonical state (7 buttons + 4 swipes + scrollSpeed + gyro + trackpadSensitivity + profiles + appPresets) after every mutation — React is always a pure mirror of Swift state.
-- Window activation policy flips to `.regular` while open (gets Dock icon), restores `.accessory` on close.
+- Native SwiftUI is hosted in an `NSHostingController` inside a fixed 1020×684 AppKit window with custom traffic lights and drag overlay.
+- `SettingsViewModel` mirrors canonical state from `MenuBarManager` and exposes mutations for mappings, profiles, app presets, sensitivity, appearance, login item, close behavior, and menu-bar battery display.
+- `SettingsWindowController` forwards connection, generation, and battery updates to the view model.
+- The window activation policy flips to `.regular` while open. Closing either restores `.accessory` mode or terminates Baton according to `keepRunningWhenClosed`.
+- `web/` is a legacy React visual reference only. It is not loaded by WKWebView and is not bundled into `Baton.app`.
 
 ### Key invariants / gotchas
 
@@ -148,7 +147,7 @@ IOHID doesn't expose battery for BT HID devices. A parallel CoreBluetooth GATT c
 - IOHID callbacks and MT touch callbacks arrive **off-main**. Both marshal to main via `DispatchQueue.main.async` for UI updates and event posting.
 - `RemoteDetector` uses a serial `processingQueue` for device add/remove to dedupe multi-interface races.
 - `MotionCapture` runs on its own serial queue (`com.baton.motion`); gyro data flows to `RemoteInputHandler.handleGyro` on that thread (cursor movement dispatches to main internally).
-- `WebBridge.scanInstalledApps()` runs on `DispatchQueue.global(qos: .userInitiated)` to avoid freezing the menu bar during icon extraction.
+- `SettingsViewModel.scanInstalledApps()` runs on `DispatchQueue.global(qos: .userInitiated)` to avoid freezing the menu bar during icon extraction.
 - Pattern for new C callbacks: capture `self` via `Unmanaged.passUnretained(self).toOpaque()` → in callback, `Unmanaged<T>.fromOpaque(context).takeUnretainedValue()` → dispatch side effects to main.
 
 ### Auxiliary tools (not part of the main build)

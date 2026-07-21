@@ -2,10 +2,7 @@
 //  SettingsPane.swift
 //  Baton
 //
-//  Visual demo of the "通用设置" view: 4 toggles (视觉), keyboard shortcut
-//  chips, about info. State is local @State since the real preferences
-//  haven't been wired into the Swift persistence model yet — the React UI
-//  also demoed these without persisting them anywhere.
+//  Native general preferences, keyboard shortcut chips, and about info.
 //
 //  Mirrors React `SettingsPane.jsx` 1:1. Each kv row has the label on the
 //  left and either a MacSwitch (toggle rows) or a row of kbd chips (shortcut
@@ -18,10 +15,6 @@ import SwiftUI
 
 struct SettingsPane: View {
     @ObservedObject var vm: SettingsViewModel
-    @State private var launchAtLogin = true
-    @State private var keepRunningWhenClosed = true
-    @State private var showBatteryInMenuBar = false
-    @State private var autoCheckForUpdates = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -35,19 +28,35 @@ struct SettingsPane: View {
             GroupLabel("通用")
             GroupCard {
                 kvRow("登录时启动") {
-                    MacSwitch(isOn: $launchAtLogin)
+                    MacSwitch(isOn: Binding(
+                        get: { vm.launchAtLogin },
+                        set: { vm.setLaunchAtLogin($0) }
+                    ))
                 }
                 DividerLine()
                 kvRow("关闭主窗口时保持运行") {
-                    MacSwitch(isOn: $keepRunningWhenClosed)
+                    MacSwitch(isOn: Binding(
+                        get: { vm.keepRunningWhenClosed },
+                        set: { vm.setKeepRunningWhenClosed($0) }
+                    ))
                 }
                 DividerLine()
                 kvRow("菜单栏显示电池百分比") {
-                    MacSwitch(isOn: $showBatteryInMenuBar)
+                    MacSwitch(isOn: Binding(
+                        get: { vm.showBatteryInMenuBar },
+                        set: { vm.setShowBatteryInMenuBar($0) }
+                    ))
                 }
                 DividerLine()
-                kvRow("自动检查更新") {
-                    MacSwitch(isOn: $autoCheckForUpdates)
+                kvRow("整体外观") {
+                    Picker("", selection: $vm.appearance) {
+                        ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 240)
                 }
             }
 
@@ -88,8 +97,7 @@ struct SettingsPane: View {
                 // justify-content flex-end, gap 8.
                 HStack(spacing: 8) {
                     Spacer(minLength: 0)
-                    PillButton(title: "检查更新", variant: .ghost, action: {})
-                    PillButton(title: "查看帮助", variant: .primary, action: {})
+                    PillButton(title: "查看帮助", variant: .primary, action: vm.openHelp)
                 }
                 .padding(.top, 10)
                 .overlay(alignment: .top) {

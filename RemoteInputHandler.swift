@@ -84,12 +84,25 @@ class RemoteInputHandler {
     private weak var menuBarManager: MenuBarManager?
     private var devices: [IOHIDDevice] = []
     private let gyroDisplayDriver = GyroDisplayDriver()
+
+    /// A Siri Remote publishes several HID interfaces nearly simultaneously.
+    /// Opening all of them in one burst can destabilize the Bluetooth HID
+    /// stack, so serialize opens and leave a short settling gap between them.
+    private let seizeQueue = DispatchQueue(label: "com.baton.hidSeize")
+    private var pendingSeizes: [(device: IOHIDDevice, key: UInt)] = []
+    private var pendingSeizeKeys: Set<UInt> = []
+    private var seizeDrainActive = false
+    private var seizeEpoch: UInt64 = 0
+    /// Main-thread session token. Delayed work from a disconnected remote is
+    /// discarded before it can register callbacks or append a stale device.
+    private var deviceSession: UInt64 = 0
     
     /// Called on any button activity; use to trigger trackpad re-scan after remote wake.
     var onButtonActivity: (() -> Void)?
     
-    // First press after connection: do not perform action (sound already played at connect).
-    private var isFirstPressAfterConnection = false
+    // Ignore at most one handshake press, and only shortly after connection.
+    // A real first press minutes later must never be swallowed.
+    private var connectionHandshakeDeadlineNanos: UInt64 = 0
     
     // Click/drag state
     private var isSelectPressed = false
@@ -116,53 +129,109 @@ class RemoteInputHandler {
         self.menuBarManager = menuBarManager
         gyroDisplayDriver.onFrame = { [weak self] in self?.renderGyroFrame() }
     }
+
+    deinit {
+        releaseSelectIfNeeded(reason: "handler deinit")
+    }
     
     func setRemoteDevice(_ device: IOHIDDevice?) {
         guard let device = device else {
-            releaseAllHeldKeys()
-            if isSelectPressed {
-                isSelectPressed = false
-                stopGyroCursorStream()
-                if isDragging {
-                    cursorController.isDragging = false
-                    cursorController.mouseUp()
-                }
-                isDragging = false
-                cursorController.isClickActive = false
+            deviceSession &+= 1
+            seizeQueue.async { [weak self] in
+                self?.seizeEpoch &+= 1
+                self?.pendingSeizes.removeAll()
+                self?.pendingSeizeKeys.removeAll()
+                self?.seizeDrainActive = false
             }
+            releaseAllHeldKeys()
+            releaseSelectIfNeeded(reason: "device removed")
             for d in devices {
                 IOHIDDeviceRegisterInputValueCallback(d, nil, nil)
                 IOHIDDeviceUnscheduleFromRunLoop(d, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
                 IOHIDDeviceClose(d, IOOptionBits(kIOHIDOptionsTypeNone))
             }
             devices.removeAll()
-            isFirstPressAfterConnection = false
+            connectionHandshakeDeadlineNanos = 0
             resetGyroCalibration()
             return
         }
         
         guard !devices.contains(where: { $0 == device }) else { return }
-        
-        // Seize device to prevent system from handling events
-        let openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
 
+        let key = UInt(bitPattern: Unmanaged.passUnretained(device).toOpaque())
+        let session = deviceSession
+        seizeQueue.async { [weak self] in
+            guard let self, self.pendingSeizeKeys.insert(key).inserted else { return }
+            self.pendingSeizes.append((device, key))
+            guard !self.seizeDrainActive else { return }
+            self.seizeDrainActive = true
+            self.drainNextSeize(session: session, epoch: self.seizeEpoch)
+        }
+    }
+
+    private func drainNextSeize(session: UInt64, epoch: UInt64) {
+        guard epoch == seizeEpoch else {
+            seizeDrainActive = false
+            return
+        }
+        guard !pendingSeizes.isEmpty else {
+            seizeDrainActive = false
+            return
+        }
+        let next = pendingSeizes.removeFirst()
+        seizeQueue.asyncAfter(deadline: .now() + .milliseconds(150)) { [weak self] in
+            guard let self, self.seizeEpoch == epoch else { return }
+            self.openAndRegister(next.device, session: session)
+            self.pendingSeizeKeys.remove(next.key)
+            self.drainNextSeize(session: session, epoch: epoch)
+        }
+    }
+
+    private func openAndRegister(_ device: IOHIDDevice, session: UInt64) {
+        let vendor = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
+        let product = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
+        var openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
         if openResult == kIOReturnSuccess {
-            rmDebug(String(format: "🔒 SEIZED HID device (vendor=0x%X product=0x%X)",
-                  IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0,
-                  IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0))
-            IOHIDDeviceRegisterInputValueCallback(device, inputValueCallback, Unmanaged.passUnretained(self).toOpaque())
-            IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
-            devices.append(device)
-            isFirstPressAfterConnection = true
+            rmDebug(String(format: "🔒 SEIZED HID device (vendor=0x%X product=0x%X)", vendor, product))
         } else {
             rmDebug(String(format: "⚠️ FAILED to seize HID device (IOReturn=0x%X) — opening unseized", openResult))
-            if IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone)) == kIOReturnSuccess {
-                IOHIDDeviceRegisterInputValueCallback(device, inputValueCallback, Unmanaged.passUnretained(self).toOpaque())
-                IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
-                devices.append(device)
-                isFirstPressAfterConnection = true
-            }
+            openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
         }
+        guard openResult == kIOReturnSuccess else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+                return
+            }
+            guard self.deviceSession == session else {
+                rmDebug("🔒 discarding stale delayed HID open after disconnect")
+                IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+                return
+            }
+            guard !self.devices.contains(where: { $0 == device }) else { return }
+            IOHIDDeviceRegisterInputValueCallback(
+                device, inputValueCallback, Unmanaged.passUnretained(self).toOpaque()
+            )
+            IOHIDDeviceScheduleWithRunLoop(
+                device, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue
+            )
+            self.devices.append(device)
+            self.markConnectionHandshakeWindow()
+        }
+    }
+
+    private func releaseSelectIfNeeded(reason: String) {
+        guard isSelectPressed else { return }
+        rmDebug("🖱 Select release fallback (\(reason))")
+        isSelectPressed = false
+        stopGyroCursorStream()
+        if isDragging {
+            cursorController.isDragging = false
+            cursorController.mouseUp()
+        }
+        isDragging = false
+        cursorController.isClickActive = false
     }
     
     func handleInputValue(_ value: IOHIDValue) {
@@ -199,10 +268,14 @@ class RemoteInputHandler {
             VolumeRevertGuard.shared.armFromRemoteButton(button: buttonName)
         }
 
-        // First key-down after connection: skip so the connect handshake doesn't fire an action.
-        if intValue == 1 && isFirstPressAfterConnection {
-            isFirstPressAfterConnection = false
-            return
+        // Swallow one connect-handshake key-down only inside the bounded
+        // window. Once the window expires, the next physical press is real.
+        if intValue == 1, connectionHandshakeDeadlineNanos != 0 {
+            let deadline = connectionHandshakeDeadlineNanos
+            connectionHandshakeDeadlineNanos = 0
+            if DispatchTime.now().uptimeNanoseconds <= deadline {
+                return
+            }
         }
 
         // Select is the trackpad click — handled separately for click/drag semantics.
@@ -232,6 +305,11 @@ class RemoteInputHandler {
             print("🔘 Button pressed: \(buttonName) → \(action.rawValue)")
         }
         executeAction(action, button: buttonName, pressed: pressed)
+    }
+
+    private func markConnectionHandshakeWindow() {
+        guard connectionHandshakeDeadlineNanos == 0 else { return }
+        connectionHandshakeDeadlineNanos = DispatchTime.now().uptimeNanoseconds + 1_500_000_000
     }
     
     private func handleSelectButton(pressed: Bool) {
@@ -682,8 +760,21 @@ class RemoteInputHandler {
     }()
 
     private func executeAction(_ action: ButtonAction, button: String, pressed: Bool) {
+        // Release the exact key captured at press time even if the mapping was
+        // edited while the remote button was still held.
+        if !pressed, let held = heldKeys.removeValue(forKey: button) {
+            releaseHeldKey(held)
+            return
+        }
         if action.requiresHold {
             handleHoldAction(action, button: button, pressed: pressed)
+            return
+        }
+        if action == .customKey,
+           holdCapableButtons.contains(button),
+           let combo = menuBarManager?.customKeyCombo(forButton: button),
+           combo["systemKeyCode"] == nil {
+            handleCustomKeyHold(combo: combo, button: button, pressed: pressed)
             return
         }
         // Tap actions fire once, on press only.
@@ -728,7 +819,11 @@ class RemoteInputHandler {
             if let combo = menuBarManager?.customKeyCombo(forButton: button),
                let keyCode = combo["keyCode"] as? Int,
                let modifiers = combo["modifiers"] as? [String] {
-                menuBarManager?.executeCustomKey(keyCode: keyCode, modifiers: modifiers)
+                menuBarManager?.executeCustomKey(
+                    keyCode: keyCode,
+                    modifiers: modifiers,
+                    systemKeyCode: combo["systemKeyCode"] as? Int
+                )
             }
         }
     }
@@ -746,7 +841,7 @@ class RemoteInputHandler {
         if pressed {
             // Defensive: if a prior release was missed, close the stale hold before opening a new one.
             if let stale = heldKeys.removeValue(forKey: button) {
-                postKey(keyCode: stale.keyCode, flags: [], keyDown: false)
+                releaseHeldKey(stale)
             }
             postKey(keyCode: spec.keyCode, flags: spec.flags, keyDown: true)
             heldKeys[button] = spec
@@ -756,13 +851,49 @@ class RemoteInputHandler {
         }
     }
 
+    private func handleCustomKeyHold(combo: [String: Any], button: String, pressed: Bool) {
+        guard pressed,
+              let keyCode = combo["keyCode"] as? Int,
+              let modifiers = combo["modifiers"] as? [String] else { return }
+        if let stale = heldKeys.removeValue(forKey: button) {
+            releaseHeldKey(stale)
+        }
+        let isFn = keyCode == kVK_Function || modifiers.contains("fn")
+        let flags: CGEventFlags = isFn
+            ? .maskSecondaryFn
+            : MenuBarManager.flags(fromModifierNames: modifiers)
+        if isFn {
+            postFnKey(down: true)
+        } else {
+            postKey(keyCode: keyCode, flags: flags, keyDown: true)
+        }
+        heldKeys[button] = (keyCode, flags)
+    }
+
     /// Called on device removal to avoid stuck modifiers if the remote disconnects mid-hold.
     private func releaseAllHeldKeys() {
         for (_, held) in heldKeys {
-            postKey(keyCode: held.keyCode, flags: [], keyDown: false)
+            releaseHeldKey(held)
         }
         heldKeys.removeAll()
         buttonState.removeAll()
+    }
+
+    private func releaseHeldKey(_ held: (keyCode: Int, flags: CGEventFlags)) {
+        if held.keyCode == kVK_Function || held.flags.contains(.maskSecondaryFn) {
+            postFnKey(down: false)
+        } else {
+            postKey(keyCode: held.keyCode, flags: [], keyDown: false)
+        }
+    }
+
+    private func postFnKey(down: Bool) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        guard let event = CGEvent(source: source) else { return }
+        event.type = .flagsChanged
+        event.setIntegerValueField(.keyboardEventKeycode, value: Int64(kVK_Function))
+        event.flags = down ? .maskSecondaryFn : []
+        event.post(tap: .cghidEventTap)
     }
 
     private func postKey(keyCode: Int, flags: CGEventFlags, keyDown: Bool) {

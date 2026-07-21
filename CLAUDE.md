@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**Baton** — a macOS menu-bar app that maps an Apple Siri Remote (gen 1, A1513) onto Claude Code workflows: push-to-talk dictation, slash commands via swipe, arrow-key navigation, gyro drag-mode, profile auto-switching. Fork of [Remotastic](https://github.com/lauschue/Remotastic). Swift native (`LSUIElement`) + a React SPA settings UI in `web/`.
+**Baton** — a native macOS menu-bar app that maps Apple Siri Remote models including A1513 and A1962 onto mouse, keyboard, media, presentation, and Claude Code workflows. It supports configurable buttons and gestures, gyro drag-mode, profiles, and per-app auto-switching. Fork of [Remotastic](https://github.com/lauschue/Remotastic). Production UI is SwiftUI; `web/` is reference-only.
 
-Repo is **flat at the root** for Swift sources; the settings UI lives in `web/`. No Xcode project, no test suite. The exhaustive per-file reference (every button mapping, every bridge message, file-by-file roles) lives in `AGENTS.md` — this file is the **quick-start** that future Claude instances need at session start.
+Repo is **flat at the root** for core Swift sources; the production settings UI lives in `SettingsUI/`. No Xcode project, no test suite. The exhaustive per-file reference lives in `AGENTS.md` — this file is the **quick-start** that future Claude instances need at session start.
 
 ## Build & Run
 
@@ -15,11 +15,14 @@ Repo is **flat at the root** for Swift sources; the settings UI lives in `web/`.
 ./create_app_bundle.sh              # wraps binary + icons + ad-hoc codesign (no web/ bundled)
 open Baton.app                      # run as a proper app (needed for TCC permissions)
 ./Baton                             # or run the raw binary (menu bar only)
+./script/build_and_run.sh --verify  # canonical kill + build + bundle + launch verification
 ```
 
 - `build.sh` is the **only real build**. It links the private `MultitouchSupport` framework via `-Xlinker -F -Xlinker /System/Library/PrivateFrameworks` and bridges C via `SiriRemote-Bridging-Header.h`. `Package.swift` exists for IDE indexing only and **cannot link private frameworks** — never use `swift build`.
 - **Adding a new `.swift` file?** Append it to **both** `SWIFT_FILES` in `build.sh` **and** the `sources` list in `Package.swift`. Files under `SettingsUI/**` must also be listed in both lists.
 - `web/` is **reference-only**. The settings UI is now a native SwiftUI tree under `SettingsUI/`; `web/dist/index.html` is no longer bundled and the React frontend has no production role. The directory is kept in source for visual comparison and design provenance.
+- `RemoteTouchSurface.swift` positively identifies the remote's small multitouch surface so a Magic Trackpad is never adopted. Run `Tests/run-tests.sh` for the pure classifier and `Tests/run-touch-surface-probe.sh` to inspect live device geometry.
+- Set `BATON_SIGN_IDENTITY` when running `create_app_bundle.sh` to use a stable local signing identity; unset keeps the ad-hoc default.
 - Requires macOS 12+, Xcode Command Line Tools (`xcode-select --install`), arm64 or x86_64 (auto-detected in `build.sh`).
 - Runtime TCC permissions (granted in System Settings): **Accessibility**, **Input Monitoring**, **Bluetooth**. Without Input Monitoring, media-key interception silently fails and volume buttons hit the system.
 - Diagnostic log: **`/tmp/baton.log`** via `rmDebug()` (defined in `RemoteDetector.swift`). NSLog is redacted under hardened runtime; use `rmDebug`, never `print`, when diagnosing HID/TCC issues in a signed bundle.
@@ -46,12 +49,12 @@ Single-process AppKit menu-bar app (`LSUIElement`). `main.swift` → `AppDelegat
 
 ### Mapping layer — `MenuBarManager`
 
-Central store + executor for every button / swipe / drag assignment. Persistence keys in `UserDefaults`: `buttonMappings`, `swipeMappings`, `profiles`, `appPresets`, `customButtonTexts`, `customSwipeTexts`, `customButtonKeyCombos`, `customSwipeKeyCombos`. Schema versioning via `buttonMappingsSchema` (currently v4) and `profileSchema` (currently v7) — bump them when canonical defaults change so existing users' built-in profiles refresh on next launch. User-created (non-builtin) profiles are never touched.
+Central store + executor for every button / swipe / drag assignment. Persistence keys in `UserDefaults`: `buttonMappings`, `swipeMappings`, `profiles`, `appPresets`, `customButtonTexts`, `customSwipeTexts`, `customButtonKeyCombos`, `customSwipeKeyCombos`. Schema versioning via `buttonMappingsSchema` (currently v5) and `profileSchema` (currently v10) — bump them when canonical defaults change so existing users' built-in profiles refresh on next launch. User-created (non-builtin) profiles are never touched.
 
 - **`ButtonAction`** — enum, rawValue is the English persistence key (stable across UI language changes). Push-to-talk actions (`spaceKey`, `rightCmd`, `rightOpt`) have `requiresHold == true` and are only valid on `holdCapableButtons` = `{playPause, volumeUp, volumeDown, siri}`; `menu` / `tv` are press-only.
 - **`SwipeAction`** — slash commands typed via `CGEvent.keyboardSetUnicodeString`. **Never sends Enter** (user confirms). Trailing-space policy is per-action: arg-taking commands (`/btw`, `/schedule`, `ultrathink`) get a space; standalone pickers (`/compact`, `/config`, `/model`, `/usage`, ...) don't.
 - **Custom actions** — beyond the enums: `customText` (arbitrary string typed) and `customKey` (`keyCode` + modifiers dict) per button/swipe, stored under separate defaults keys.
-- **Profiles** — named snapshots of button+swipe mappings. `AppPreset` binds a `bundleId` → `profileId`; `NSWorkspace.didActivateApplicationNotification` flips the active profile when a bound app becomes frontmost. **The TV button is hardcoded in `RemoteInputHandler.swift:130` to call `menuBarManager.toggleSystemOverride()` for system/app mode switching before the mapping layer sees it — no profile should bind `tv`.** Four built-ins are seeded on first run (`loadProfiles`, schema v9):
+- **Profiles** — named snapshots of button+swipe mappings. `AppPreset` binds a `bundleId` → `profileId`; `NSWorkspace.didActivateApplicationNotification` flips the active profile when a bound app becomes frontmost. **The TV button is hardcoded in `RemoteInputHandler.swift:130` to call `menuBarManager.toggleSystemOverride()` for system/app mode switching before the mapping layer sees it — no profile should bind `tv`.** Four built-ins are seeded on first run (`loadProfiles`, schema v10):
   - **默认配置** (`defaultButtonMappings` / `defaultSwipeMappings`, trackpadMode=`mouse`) — general navigation: Play/Pause→Enter, Menu→Esc, Select→TrackpadClick, Volume Up/Down→.none (system volume), Siri→Space push-to-talk, TV→.none; swipes are ↑ / ↓ / ← / →.
   - **Vibe Coding** (`codingButtonMappings` / `codingSwipeMappings`, trackpadMode=`gesture`) — Claude Code coding focused: same buttons as 默认配置 (Volume→.none for system volume); swipes are `/usage` / `/compact` / `/model` / mode-switch.
   - **演示模式** (`demoButtonMappings` / `demoSwipeMappings`, trackpadMode=`gesture`) — PowerPoint presentation: Play/Pause (center)→→ (next slide), Menu→⌥⌘P (toggle slideshow), Siri→← (previous slide), Select→TrackpadClick, Volume Up/Down→.none (let AVRCP pass through), TV→.none; swipes are B / W (black/white screen) / ← / →.

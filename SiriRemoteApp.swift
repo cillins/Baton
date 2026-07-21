@@ -28,6 +28,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🚀 Baton starting...")
 
+        AppPreferenceKey.registerDefaults()
+
         // Run as menu bar app (no dock icon)
         NSApp.setActivationPolicy(.accessory)
         
@@ -43,8 +45,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarManager = MenuBarManager(statusItem: statusItem)
         menuBarManager.mediaController = MediaController()
 
-        // Wire the "打开主窗口…" menu item to show the React-based settings window.
-        // Connection-state changes are pushed live to the webview via pushConnectionState.
+        // Wire the "打开主窗口…" menu item to show the native SwiftUI settings window.
+        // Connection-state changes are pushed live through SettingsWindowController.
         settingsWindow = SettingsWindowController(menuBarManager: menuBarManager, remoteDetector: remoteDetector)
         menuBarManager.onOpenSettings = { [weak self] in
             self?.settingsWindow?.show()
@@ -271,6 +273,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         batteryMonitorStarted = true
         batteryMonitor.start { [weak self] level in
             self?.remoteDetector?.currentBattery = level
+            self?.menuBarManager.updateBatteryLevel(level)
             self?.settingsWindow?.pushBattery(level)
         }
     }
@@ -315,34 +318,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .mute:       buttonName = "mute"
         }
 
-        // Debounce: if the HID path just handled this button, don't double-fire.
+        // Consume only an AVRCP event correlated with a press just observed on
+        // the remote's seized HID interface. Every other media-key event may
+        // belong to a keyboard or another input device and must pass through.
         if RemoteInputHandler.lastProcessedButton == buttonName {
             let timeSinceLastProcess = Self.machDeltaToSeconds(from: RemoteInputHandler.lastProcessedTime)
             if timeSinceLastProcess < 0.2 {
                 return true
             }
         }
-
-        let action = menuBarManager.getMapping(for: buttonName)
-        if action != .none {
-            menuBarManager.executeAction(action.rawValue, button: buttonName)
-        }
-        // Always consume — no action in this app corresponds to a system media key anymore,
-        // so we never want macOS's default media handler to fire.
-        // Forward volume only when the current mapping is a real system-volume
-        // action, or in the two legacy pass-through profiles where it remains
-        // unassigned. Demo mode now maps these buttons to page navigation and
-        // must consume/revert the underlying AVRCP volume event.
-        if keyType == .volumeUp || keyType == .volumeDown {
-            if action == .systemVolumeUp || action == .systemVolumeDown {
-                return false
-            }
-            if action == .none,
-               ["coding", "media"].contains(menuBarManager.currentProfileId) {
-                return false
-            }
-        }
-        return true
+        return false
     }
     
 }

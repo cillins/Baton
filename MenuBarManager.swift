@@ -220,18 +220,27 @@ class MenuBarManager {
     ///   - "⎋" (Unicode BROKEN CIRCLE) vs Mac Esc key text "esc"
     /// Normalize so a customKey binding displays identically to the preset
     /// action that does the same thing.
-    private static let customKeyGlyphNormalization: [String: String] = [
+    static let customKeyGlyphNormalization: [String: String] = [
         "↩": "⏎",
         "⎋": "esc",
     ]
-    private static func customKeyDisplayLabel(combo: [String: Any], fallback: String) -> String {
+    static func customKeyDisplayLabel(combo: [String: Any], fallback: String) -> String {
         guard let label = combo["label"] as? String, !label.isEmpty else { return fallback }
         return customKeyGlyphNormalization[label] ?? label
+    }
+
+    static func customTextDisplayLabel(_ text: String?, fallback: String) -> String {
+        guard let text, !text.isEmpty else { return fallback }
+        return text.count > 12 ? String(text.prefix(12)) + "…" : text
     }
 
     private let statusItem: NSStatusItem
     private let menu: NSMenu
     private let statusMenuItem: NSMenuItem
+    private var currentBatteryLevel: Int?
+    private var showsBatteryPercentage = UserDefaults.standard.bool(
+        forKey: AppPreferenceKey.showBatteryInMenuBar
+    )
     
     // Button mappings (stored in UserDefaults)
     private var buttonMappings: [String: ButtonAction] = [:]
@@ -240,7 +249,8 @@ class MenuBarManager {
     private var swipeMappings: [SwipeDirection: SwipeAction] = [:]
 
     // Custom action payloads, keyed by button key / swipe direction rawValue.
-    // Key combo dict: {"keyCode": Int, "modifiers": ["cmd","shift","opt","ctrl"], "label": "⌘⇧P"}.
+    // Key combo dict: {"keyCode": Int, "modifiers": ["cmd","shift","opt","ctrl"],
+    // "label": "⌘⇧P", optional "systemKeyCode": Int for NX_SYSDEFINED keys}.
     private var customButtonTexts: [String: String] = [:]
     private var customButtonKeys: [String: [String: Any]] = [:]
     private var customSwipeTexts: [String: String] = [:]
@@ -335,7 +345,7 @@ class MenuBarManager {
 
     /// Actions offered for a button: hold-to-talk actions only on buttons that
     /// emit release events; Mouse Click only on the trackpad click.
-    /// Used by the React settings UI bridge (SettingsWindowController) to populate
+    /// Used by the native settings view model to populate
     /// the per-row dropdown — not by the menu bar picker, which shows the 4 fixed
     /// entries built inline in rebuildMenu().
     static func availableActions(forButton key: String) -> [ButtonAction] {
@@ -509,7 +519,7 @@ class MenuBarManager {
         }
 
         button.image = Self.makeRemoteIcon()
-        button.title = ""
+        renderStatusItemButton()
 
         rebuildMenu()
         statusItem.menu = menu
@@ -533,82 +543,6 @@ class MenuBarManager {
         menu.addItem(statusMenuItem)
         
         menu.addItem(NSMenuItem.separator())
-        
-        // Button Mappings submenu
-        let mappingsItem = NSMenuItem(title: "按钮映射", action: nil, keyEquivalent: "")
-        let mappingsSubmenu = NSMenu()
-
-        for (key, label, _) in Self.buttonRows {
-            let buttonItem = NSMenuItem(title: label, action: nil, keyEquivalent: "")
-            let actionSubmenu = NSMenu()
-
-            let profileDefault = currentProfile.buttonMappings[key] ?? .none
-            let current = buttonMappings[key] ?? .none
-            let entries: [(tag: String, title: String)] = [
-                ("profileDefault", "默认设置"),
-                ("customKey",      pickerLabel(forCustomKey: customButtonKeys[key])),
-                ("customText",     pickerLabel(forCustomText: customButtonTexts[key])),
-                ("none",           ButtonAction.none.displayName),
-            ]
-            for entry in entries {
-                let actionItem = NSMenuItem(title: entry.title, action: #selector(changeMapping(_:)), keyEquivalent: "")
-                actionItem.target = self
-                actionItem.representedObject = (key, entry.tag)
-                if (entry.tag == "profileDefault" && current == profileDefault) ||
-                   (entry.tag == "customKey" && current == .customKey) ||
-                   (entry.tag == "customText" && current == .customText) ||
-                   (entry.tag == "none" && current == .none) {
-                    actionItem.state = .on
-                }
-                actionSubmenu.addItem(actionItem)
-            }
-
-            buttonItem.submenu = actionSubmenu
-            mappingsSubmenu.addItem(buttonItem)
-        }
-        
-        mappingsItem.submenu = mappingsSubmenu
-        menu.addItem(mappingsItem)
-
-        // Swipe Gestures submenu
-        let swipeItem = NSMenuItem(title: "滑动手势", action: nil, keyEquivalent: "")
-        let swipeSubmenu = NSMenu()
-        let swipes: [(SwipeDirection, String)] = [
-            (.up,    "上滑"),
-            (.down,  "下滑"),
-            (.left,  "左滑"),
-            (.right, "右滑"),
-        ]
-        for (direction, label) in swipes {
-            let dirItem = NSMenuItem(title: label, action: nil, keyEquivalent: "")
-            let actionsMenu = NSMenu()
-            let profileDefault = currentProfile.swipeMappings[direction.rawValue] ?? .none
-            let current = swipeMappings[direction] ?? .none
-            let entries: [(tag: String, title: String)] = [
-                ("profileDefault", "默认设置"),
-                ("customKey",      pickerLabel(forCustomKey: customSwipeKeys[direction.rawValue])),
-                ("customText",     pickerLabel(forCustomText: customSwipeTexts[direction.rawValue])),
-                ("none",           SwipeAction.none.displayName),
-            ]
-            for entry in entries {
-                let actionItem = NSMenuItem(title: entry.title, action: #selector(changeSwipeMapping(_:)), keyEquivalent: "")
-                actionItem.target = self
-                actionItem.representedObject = (direction, entry.tag)
-                if (entry.tag == "profileDefault" && current == profileDefault) ||
-                   (entry.tag == "customKey" && current == .customKey) ||
-                   (entry.tag == "customText" && current == .customText) ||
-                   (entry.tag == "none" && current == .none) {
-                    actionItem.state = .on
-                }
-                actionsMenu.addItem(actionItem)
-            }
-            dirItem.submenu = actionsMenu
-            swipeSubmenu.addItem(dirItem)
-        }
-        swipeItem.submenu = swipeSubmenu
-        menu.addItem(swipeItem)
-
-        menu.addItem(NSMenuItem.separator())
 
         // Open main window
         let openItem = NSMenuItem(title: "打开主窗口…", action: #selector(openSettings), keyEquivalent: "")
@@ -621,62 +555,41 @@ class MenuBarManager {
         menu.addItem(quitItem)
     }
     
-    @objc private func changeMapping(_ sender: NSMenuItem) {
-        guard let (buttonKey, tag) = sender.representedObject as? (String, String) else {
-            return
-        }
-        let action: ButtonAction
-        switch tag {
-        case "profileDefault": action = currentProfile.buttonMappings[buttonKey] ?? .none
-        case "customKey":      action = .customKey
-        case "customText":     action = .customText
-        case "none":           action = .none
-        default: return
-        }
-        buttonMappings[buttonKey] = action
-        saveMappings()
-        rebuildMenu()
-    }
-
-    @objc private func changeSwipeMapping(_ sender: NSMenuItem) {
-        guard let (direction, tag) = sender.representedObject as? (SwipeDirection, String) else {
-            return
-        }
-        let action: SwipeAction
-        switch tag {
-        case "profileDefault": action = currentProfile.swipeMappings[direction.rawValue] ?? .none
-        case "customKey":      action = .customKey
-        case "customText":     action = .customText
-        case "none":           action = .none
-        default: return
-        }
-        swipeMappings[direction] = action
-        saveSwipeMappings()
-        rebuildMenu()
-    }
-
-    /// Title shown for the customKey row in the 4-item picker. Falls back to the
-    /// placeholder glyph ("Key") when the user hasn't recorded a combo yet.
-    private func pickerLabel(forCustomKey combo: [String: Any]?) -> String {
-        guard let combo = combo else { return ButtonAction.customKey.displayName }
-        return Self.customKeyDisplayLabel(combo: combo, fallback: ButtonAction.customKey.displayName)
-    }
-
-    /// Title shown for the customText row in the 4-item picker. Falls back to the
-    /// placeholder ("Text") when the user hasn't typed a string yet. Truncates long
-    /// strings with an ellipsis so the menu doesn't widen.
-    private func pickerLabel(forCustomText text: String?) -> String {
-        guard let txt = text, !txt.isEmpty else { return ButtonAction.customText.displayName }
-        return txt.count > 12 ? String(txt.prefix(12)) + "…" : txt
-    }
-    
     func updateConnectionStatus(connected: Bool) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             self.isConnected = connected
+            if !connected { self.currentBatteryLevel = nil }
             self.statusMenuItem.title = connected ? "状态：已连接 ✓" : "状态：未连接"
             self.statusItem.button?.appearsDisabled = !connected
+            self.renderStatusItemButton()
             self.onConnectionChange?(connected)
+        }
+    }
+
+    func setShowsBatteryPercentage(_ shows: Bool) {
+        showsBatteryPercentage = shows
+        UserDefaults.standard.set(shows, forKey: AppPreferenceKey.showBatteryInMenuBar)
+        renderStatusItemButton()
+    }
+
+    func updateBatteryLevel(_ level: Int?) {
+        DispatchQueue.main.async { [weak self] in
+            self?.currentBatteryLevel = level
+            self?.renderStatusItemButton()
+        }
+    }
+
+    private func renderStatusItemButton() {
+        guard let button = statusItem.button else { return }
+        if showsBatteryPercentage {
+            statusItem.length = NSStatusItem.variableLength
+            button.imagePosition = .imageLeading
+            button.title = currentBatteryLevel.map { "  \($0)%" } ?? "  —"
+        } else {
+            statusItem.length = NSStatusItem.squareLength
+            button.imagePosition = .imageOnly
+            button.title = ""
         }
     }
 
@@ -850,8 +763,31 @@ class MenuBarManager {
     }
 
     /// Execute a custom key-combo action (modifiers + virtual keyCode).
-    func executeCustomKey(keyCode: Int, modifiers: [String]) {
-        sendKey(keyCode, flags: Self.flags(fromModifierNames: modifiers))
+    func executeCustomKey(keyCode: Int, modifiers: [String], systemKeyCode: Int? = nil) {
+        if let systemKeyCode {
+            mediaController?.sendSystemKey(nxKeyCode: Int32(systemKeyCode))
+        } else if keyCode == kVK_Function || modifiers.contains("fn") {
+            sendFnKeyTap()
+        } else {
+            sendKey(keyCode, flags: Self.flags(fromModifierNames: modifiers))
+        }
+    }
+
+    private func sendFnKeyTap() {
+        let source = CGEventSource(stateID: .hidSystemState)
+        if let down = CGEvent(source: source) {
+            down.type = .flagsChanged
+            down.setIntegerValueField(.keyboardEventKeycode, value: Int64(kVK_Function))
+            down.flags = .maskSecondaryFn
+            down.post(tap: .cghidEventTap)
+        }
+        usleep(10000)
+        if let up = CGEvent(source: source) {
+            up.type = .flagsChanged
+            up.setIntegerValueField(.keyboardEventKeycode, value: Int64(kVK_Function))
+            up.flags = []
+            up.post(tap: .cghidEventTap)
+        }
     }
 
     static func flags(fromModifierNames modifiers: [String]) -> CGEventFlags {
@@ -914,7 +850,8 @@ class MenuBarManager {
             if let combo = customSwipeKeys[direction.rawValue],
                let keyCode = combo["keyCode"] as? Int,
                let modifiers = combo["modifiers"] as? [String] {
-                sendKey(keyCode, flags: Self.flags(fromModifierNames: modifiers))
+                executeCustomKey(keyCode: keyCode, modifiers: modifiers,
+                                 systemKeyCode: combo["systemKeyCode"] as? Int)
             }
         }
     }
@@ -993,7 +930,8 @@ class MenuBarManager {
             if let combo = customButtonKeys[button],
                let keyCode = combo["keyCode"] as? Int,
                let modifiers = combo["modifiers"] as? [String] {
-                sendKey(keyCode, flags: Self.flags(fromModifierNames: modifiers))
+                executeCustomKey(keyCode: keyCode, modifiers: modifiers,
+                                 systemKeyCode: combo["systemKeyCode"] as? Int)
             }
         }
     }

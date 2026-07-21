@@ -10,6 +10,9 @@ import Cocoa
 import CoreGraphics
 
 class MediaKeyInterceptor {
+    /// Temporarily receives NX_SYSDEFINED keys while the settings recorder is active.
+    static var recordingSystemKeyHandler: ((Int32) -> Void)?
+
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var wakeObserver: NSObjectProtocol?
@@ -105,6 +108,11 @@ class MediaKeyInterceptor {
         let keyFlags = nsEvent.data1 & 0x0000FFFF
         let keyState = (keyFlags & 0xFF00) >> 8
         let isKeyDown = keyState == 0x0A
+
+        if let recorder = Self.recordingSystemKeyHandler {
+            if isKeyDown { recorder(keyCode) }
+            return nil
+        }
         
         // Only handle key down events
         guard isKeyDown else {

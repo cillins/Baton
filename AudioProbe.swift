@@ -33,6 +33,9 @@ final class AudioProbe {
     private let logPath = "/tmp/hid_audio_probe.log"
     private var attached: [IOHIDDevice] = []
     private var buffers: [UnsafeMutablePointer<UInt8>] = []
+    private var callbackContexts: [AudioReportContext] = []
+    private var audioDeviceIndex: Int?
+    private var siriHeld = false
 
     /// 0xAF enable target, parsed from --audio-enable=<id>. nil = don't send.
     let enableReportID: CFIndex? = {
@@ -61,26 +64,34 @@ final class AudioProbe {
     func attach(_ device: IOHIDDevice) {
         guard !attached.contains(where: { $0 == device }) else { return }
         attached.append(device)
+        let deviceIndex = attached.count - 1
 
         let v = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
         let p = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
         let transport = IOHIDDeviceGetProperty(device, kIOHIDTransportKey as CFString) as? String ?? "?"
         log(String(format: "🎧 probe attach: vendor=0x%X product=0x%X transport=%@", v, p, transport))
 
-        dumpReportElements(device)
+        let handlesSiriState = dumpReportElements(device)
 
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 512)
         buffers.append(buffer) // keep alive for process lifetime (probe tool)
+        let callbackContext = AudioReportContext(
+            probe: self,
+            deviceIndex: deviceIndex,
+            handlesSiriState: handlesSiriState
+        )
+        callbackContexts.append(callbackContext)
         IOHIDDeviceRegisterInputReportCallback(device, buffer, 512, inputReportCallback,
-                                               Unmanaged.passUnretained(self).toOpaque())
-        log("🎧 raw report callback registered")
+                                               Unmanaged.passUnretained(callbackContext).toOpaque())
+        log("🎧 raw report callback registered dev=\(deviceIndex) siriState=\(handlesSiriState)")
 
-        if enableReportID != nil {
-            // The 0xAF enable write (GATT handle 0x1d in the Linux dump) is a
-            // buffered-bytes FEATURE report — on macOS that surfaces as report ID 0xFF.
-            // Try it on every attached device; those lacking the report just error out.
-            sendEnable(device)
+        if handlesSiriState {
+            audioDeviceIndex = deviceIndex
         }
+        // Do not enable during enumeration.  The remote exposes six HID interfaces,
+        // and writes while they are still arriving can reset the Siri state stream.
+        // A real Siri-down transition broadcasts one enable command after all of the
+        // interfaces have attached.
     }
 
     private func sendEnable(_ device: IOHIDDevice) {
@@ -101,19 +112,28 @@ final class AudioProbe {
         payload.withUnsafeBufferPointer { _ in } // keep payload alive semantics explicit
     }
 
+    private func sendEnableToAllInterfaces() {
+        log("📤 broadcasting one enable command to \(attached.count) interface(s)")
+        for (index, device) in attached.enumerated() {
+            log("📤 enable target dev=\(index)")
+            sendEnable(device)
+        }
+    }
+
     /// Log aggregated report IDs with total payload size (audio ≈100 bytes), plus the
     /// raw HID report descriptor for manual parsing. Input element types are
     /// Misc/Button/Axis/ScanCodes (1/2/3/4); Output=129, Feature=257.
-    private func dumpReportElements(_ device: IOHIDDevice) {
+    private func dumpReportElements(_ device: IOHIDDevice) -> Bool {
         if let desc = IOHIDDeviceGetProperty(device, "ReportDescriptor" as CFString) as? Data {
             log("📄 report descriptor (\(desc.count) bytes): \(desc.map { String(format: "%02x", $0) }.joined())")
         }
         guard let elements = IOHIDDeviceCopyMatchingElements(device, nil, IOOptionBits(kIOHIDOptionsTypeNone)) as? [IOHIDElement] else {
             log("⚠️ IOHIDDeviceCopyMatchingElements returned nil")
-            return
+            return false
         }
         // (class, reportID) → (totalBits, sample pages/usages)
         var reports: [String: (bits: Int, detail: String)] = [:]
+        var hasSiriInput = false
         for el in elements {
             let t = IOHIDElementGetType(el)
             let cls: String
@@ -129,6 +149,9 @@ final class AudioProbe {
                 continue
             }
             let rid = IOHIDElementGetReportID(el)
+            if cls == "IN", rid == 250 {
+                hasSiriInput = true
+            }
             let size = IOHIDElementGetReportSize(el)
             let count = IOHIDElementGetReportCount(el)
             let key = "\(cls):\(rid)"
@@ -142,28 +165,27 @@ final class AudioProbe {
         for (key, entry) in reports.sorted(by: { $0.key < $1.key }) {
             log(String(format: "📄 %@ report: %d bits (≈%d bytes)%@", key, entry.bits, entry.bits / 8, entry.detail))
         }
+        return hasSiriInput
     }
 
-    fileprivate func handleReport(_ report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
+    fileprivate func handleReport(_ report: UnsafeMutablePointer<UInt8>, length: Int,
+                                  reportID: UInt32, deviceIndex: Int,
+                                  handlesSiriState: Bool) {
         let data = Data(bytes: report, count: length)
         let hex = data.map { String(format: "%02x", $0) }.joined()
-        log(String(format: "📥 report id=%d len=%d %@", reportID, length, hex))
+        log(String(format: "📥 report dev=%d id=%d len=%d %@", deviceIndex, reportID, length, hex))
 
-        // Siri button went down: re-fire the 0xAF enable immediately, in case the
-        // remote's input streaming times out between launch-time enable and the hold.
-        if enableReportID != nil, reportID == 250, data == Data([0xfa, 0x10]) {
-            log("📤 Siri down — re-sending enable")
-            for device in attached { sendEnable(device) }
-        }
-
-        // While Siri is held, poll the 208-byte buffered-bytes pipes (report 255,
-        // input + feature). Audio can't arrive as notifications (report 250 is
-        // declared 1-byte, so the HID parser drops 101-byte values), but the GATT
-        // characteristics backing IN/FEAT 255 are poll-only — a FIFO read might
-        // return audio chunks.
-        if reportID == 250, data == Data([0xfa, 0x10]) {
+        guard handlesSiriState, reportID == 250 else { return }
+        if data == Data([0xfa, 0x10]), !siriHeld {
+            siriHeld = true
+            log("📤 Siri down dev=\(deviceIndex) — enabling once")
+            if enableReportID != nil {
+                sendEnableToAllInterfaces()
+            }
             startPolling()
-        } else if reportID == 250, data == Data([0xfa, 0x00]) {
+        } else if data == Data([0xfa, 0x00]), siriHeld {
+            siriHeld = false
+            log("📤 Siri up dev=\(deviceIndex)")
             stopPolling()
         }
     }
@@ -174,7 +196,7 @@ final class AudioProbe {
 
     private func startPolling() {
         guard pollTimer == nil else { return }
-        log("📤 Siri held — polling buffered-bytes report 255")
+        log("📤 Siri held — polling all buffered-bytes report 255 interfaces")
         let t = DispatchSource.makeTimerSource(queue: pollQueue)
         t.schedule(deadline: .now(), repeating: .milliseconds(20))
         t.setEventHandler { [weak self] in self?.pollBufferedBytes() }
@@ -189,7 +211,7 @@ final class AudioProbe {
     }
 
     private func pollBufferedBytes() {
-        for (index, device) in attached.enumerated() {
+        for (deviceIndex, device) in attached.enumerated() {
             for (typeName, type) in [("IN", kIOHIDReportTypeInput), ("FEAT", kIOHIDReportTypeFeature)] {
                 var buf = [UInt8](repeating: 0, count: 512)
                 var len = buf.count
@@ -197,13 +219,25 @@ final class AudioProbe {
                 guard r == kIOReturnSuccess, len > 0 else { continue }
                 let d = Data(buf[0..<len])
                 guard d.contains(where: { $0 != 0 }) else { continue }
-                let key = "\(index)-\(typeName)"
+                let key = "\(deviceIndex)-\(typeName)"
                 guard lastPollData[key] != d else { continue }
                 lastPollData[key] = d
                 let hex = d.map { String(format: "%02x", $0) }.joined()
-                log(String(format: "📥 poll dev=%d %@:255 len=%d %@", index, typeName, len, hex))
+                log(String(format: "📥 poll dev=%d %@:255 len=%d %@", deviceIndex, typeName, len, hex))
             }
         }
+    }
+}
+
+private final class AudioReportContext {
+    unowned let probe: AudioProbe
+    let deviceIndex: Int
+    let handlesSiriState: Bool
+
+    init(probe: AudioProbe, deviceIndex: Int, handlesSiriState: Bool) {
+        self.probe = probe
+        self.deviceIndex = deviceIndex
+        self.handlesSiriState = handlesSiriState
     }
 }
 
@@ -212,6 +246,12 @@ private func inputReportCallback(context: UnsafeMutableRawPointer?, result: IORe
                                  reportID: UInt32, report: UnsafeMutablePointer<UInt8>,
                                  reportLength: CFIndex) {
     guard let context = context else { return }
-    Unmanaged<AudioProbe>.fromOpaque(context).takeUnretainedValue()
-        .handleReport(report, length: reportLength, reportID: reportID)
+    let callbackContext = Unmanaged<AudioReportContext>.fromOpaque(context).takeUnretainedValue()
+    callbackContext.probe.handleReport(
+        report,
+        length: reportLength,
+        reportID: reportID,
+        deviceIndex: callbackContext.deviceIndex,
+        handlesSiriState: callbackContext.handlesSiriState
+    )
 }

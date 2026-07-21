@@ -1,172 +1,146 @@
-<img src="banner.png" alt="Baton — a walkie-talkie for Claude Code">
+<p align="center">
+  <img src="banner.png" alt="Baton — 用 Siri Remote 控制 Mac" width="100%">
+</p>
 
-# Baton V0.1
+# Baton
 
-One-handed vibe coding using Apple TV remote, customizable buttons and gestures.
+Baton 是一款 macOS 菜单栏应用，把 Apple Siri Remote 变成可自定义的鼠标、键盘、演示器和 Claude Code 控制器。
 
-Grab a remote, push to talk, and vibe-code with Claude Code without breaking flow.
+通过遥控器的实体按键、触控板手势与陀螺仪，你可以移动光标、滚动、拖拽、发送快捷键、输入文本或执行 Claude Code 斜杠命令。所有映射都在原生 SwiftUI 设置窗口中完成，不再通过菜单栏子菜单配置。
 
-<img src="demo.gif" alt="Baton demo" width="70%">
+> 当前暂不提供可下载发行版、自动更新或应用内更新检查。请按照下方步骤从源码构建。
 
-Tested with the 1st-gen Siri Remote (Model A1513). Support for Xbox Adaptive Joystick coming soon.
+## 支持的遥控器
 
-> **Experimental release.** For now, Baton ships as an experiment — there is no pre-built binary. You'll have to build the app bundle yourself (see [Building](#building)). Your mileage may vary.
+- 已实际适配：Siri Remote A1513、A1962
+- 已纳入 HID 识别：A1969、A2179、A2540 等后续型号
+- 不同固件的 HID 报告可能存在差异；未实际验证的型号仍属于实验性支持
 
----
+麦克风音频目前不支持。按住 Siri 键可以映射为 macOS 或第三方听写工具的快捷键，但 Baton 不会直接读取遥控器麦克风音频。
 
-## Features
+## 主要功能
 
-### Buttons
+### 按键与手势映射
 
-Each physical Siri Remote button is independently assignable via the menu bar.
+- 七个遥控器按键可分别配置
+- 支持普通按键、带修饰键组合及媒体/系统功能键
+- 支持录制新按键和输入任意自定义文本
+- 触控板提供“鼠标”和“手势”两种模式
+- 手势模式支持上、下、左、右滑动映射
+- 鼠标模式下不显示无效的滑动配置
+- 支持单指移动、双指滚动、轻点单击与按住拖拽
 
-<img src="siri-remote-button-mapping-default.png" alt="Default Siri Remote button mapping" width="50%">
+### 陀螺仪光标
 
-<img src="screenshot-button-mapping.png" alt="Button Mappings menu screenshot" width="70%">
+支持带运动数据的 A1513/A1962：按住触控板后转动遥控器即可拖动窗口或对象。设置页可调整拖动灵敏度和防抖强度。
 
-**Default Button Mapping (Customizable):**
-- Menu → Esc
-- TV → Ctrl + C
-- Siri → Space (Claude voice dictation)
-- Play/Pause → Enter
-- Volume Up → Up arrow
-- Volume Down → Down arrow
+### 配置与应用预设
 
-| Action | Behavior |
-|---|---|
-| Play/pause button | Enter (submit prompt) |
-| Volume up button | Up arrow |
-| Volume down button | Down arrow |
-| Menu button | Esc (Navigate back) |
-| TV button | Control + C (cancel prompt) |
-| Trackpad click | Left mouse click |
-| Siri/mic button | Space on hold (Claude voice dictation must be enabled) |
+Baton 内置以下配置：
 
-**Hold-Capable Buttons:** Push-to-talk actions require buttons that emit both press and release HID events. Only Play/Pause, Volume Up, Volume Down, and Siri buttons allow for both events. Also this button can trigger right command or option key for other dictation apps like [VoiceInk](https://github.com/Beingpax/VoiceInk).
+- 默认配置：鼠标与常用导航
+- Vibe Coding：Claude Code 命令与模式切换
+- 演示模式：翻页、黑屏/白屏及全屏演示
+- 媒体播放：播放、上一首、下一首、静音和系统音量
 
+你也可以新建、重命名和编辑自己的配置，并按前台应用自动切换配置。
 
-### Swipe Gestures
+### 通用设置
 
-Four independently configurable single-finger swipe directions on the trackpad surface. Detection is velocity-gated: **distance ≥ 35%** of trackpad, **duration < 350 ms**, **dominant axis ≥ 2×** the other. Slow drags continue to move the cursor; only deliberate flicks trigger actions.
+- 登录时启动
+- 关闭主窗口后继续在菜单栏运行，或直接退出
+- 菜单栏显示遥控器电量百分比
+- 跟随系统、浅色、深色三种整体外观
 
-<img src="siri-remote-gesture-mapping.png" alt="Siri Remote swipe gesture mapping" width="50%">
+### 稳定性处理
 
-<img src="screenshot-swipe-mapping.png" alt="Swipe Gestures menu screenshot" width="70%">
+- HID 与 AVRCP 双通道去重，避免一次按键触发两次
+- 只拦截能够与遥控器 HID 对应的媒体键事件，不影响 Mac 键盘或其他外设
+- 按触控表面尺寸识别 Siri Remote，避免误接管 Magic Trackpad
+- 多个 HID 接口分批抢占，降低蓝牙 HID 栈在连接瞬间的压力
+- 遥控器断开时自动释放仍按住的虚拟按键
+- 睡眠唤醒和输入停顿后自动恢复事件监听与触控板连接
+- 对遥控器导致的系统音量变化进行保护，同时允许媒体配置正常调节音量
 
-**Default Gesture Mapping (Customizable):**
-- Swipe Up → `/usage`
-- Swipe Down → `/compact`
-- Swipe Left → `/model`
-- Swipe Right → Mode Switching (Shift + Tab)
+## 构建
 
-Assignable actions:
+### 环境要求
 
-- **Arrow keys (direction-matched)**: "Left: Navigate Left" offered only on Swipe Left; "Right: Navigate Right" offered only on Swipe Right.
-- **Mode Switching (Shift + Tab)** — toggle between normal / plan / auto-accept modes in Claude Code.
-- **`ultrathink`** — inserts the keyword (with trailing space) into the prompt.
-- **Slash commands**: `/btw`, `/compact`, `/config`, `/context`, `/effort`, `/init`, `/model`, `/remote-control`, `/schedule`, `/tasks`, `/usage`.
-- **None**.
+- macOS 12 或更高版本
+- Xcode Command Line Tools：`xcode-select --install`
 
-**Trailing-space policy.** Commands that typically take an argument (`/btw`, `/schedule`, `ultrathink`) are typed with a trailing space so you can keep typing. Commands that stand alone or open an interactive picker (`/compact`, `/config`, `/context`, `/effort`, `/init`, `/model`, `/remote-control`, `/tasks`, `/usage`) are typed without a trailing space.
-
-**Enter is never sent** — gestures type the command but leave Enter for the user, so the command can be reviewed, edited, or augmented with arguments.
-
-### Other Trackpad Inputs
-
-- **Cursor movement** via single-finger drag
-- **Two-finger scroll** (natural-scroll direction, configurable scale)
-- **Tap-to-click** on the trackpad surface
-- **Drag** by holding the trackpad click and moving
-
-### Persistence
-
-Button mappings and swipe mappings are saved to UserDefaults (`buttonMappings`, `swipeMappings`) and survive restarts. Schema versioning handles future upgrades (`buttonMappingsSchema`).
-
-### Safety
-
-- **Stuck-key prevention.** If the remote disconnects while a push-to-talk key is held, Baton releases the virtual key automatically.
-- **Stale-hold self-heal.** If a release HID event is ever missed, the next press closes the stale hold before opening a new one.
-- **HID seize.** On connect, Baton seizes the remote at the HID level so macOS no longer also sees media key events from it — no double-dispatch (e.g., to iTunes/Music), no system funk sound on unhandled keys.
-
----
-
-## Building
-
-### Prerequisites
-
-- macOS 11 (Big Sur) or later
-- Xcode Command Line Tools: `xcode-select --install`
-
-### Build
+### 编译并打包
 
 ```bash
 ./build.sh
+./create_app_bundle.sh
+open Baton.app
 ```
 
-This runs a single `swiftc` invocation over all the project's Swift files, linking IOKit, CoreGraphics, AudioToolbox, Carbon, AppKit, and the private MultitouchSupport framework via a bridging header. No Xcode project is required.
+`build.sh` 是唯一的正式构建入口。项目使用一次 `swiftc` 调用，并链接系统私有的 `MultitouchSupport` 框架；`Package.swift` 仅用于 IDE 索引，不能替代 `build.sh`。
 
----
+`create_app_bundle.sh` 会生成 `Baton.app`、复制图标与资源，并使用 `Baton.entitlements` 进行临时签名。
 
-## Installing and Running
+本地开发者可设置稳定签名身份，让辅助功能和输入监控授权在重新构建后继续有效：
 
-1. Build and bundle: `./build.sh && ./create_app_bundle.sh`
-2. Move `Baton.app` to `/Applications` (optional but helps icon caching)
-3. Launch it (`open Baton.app`)
-4. Grant permissions in **System Settings → Privacy & Security**:
-   - **Accessibility** (for posting keyboard/mouse events)
-   - **Input Monitoring** (for reading HID events)
-   - **Bluetooth** (to communicate with the remote)
-5. Pair the Siri Remote via **System Settings → Bluetooth** if it isn't already paired
-6. Use the menu-bar walkie-talkie glyph to access Button Mappings and Swipe Gestures
+```bash
+BATON_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" ./create_app_bundle.sh
+```
 
-> ⚠️ **Important:** You must explicitly add **Baton.app** to **System Settings → Privacy & Security → Input Monitoring** (click the **+** button and select the app). Without this, Baton may not properly intercept HID events/media keys, which means vol up and down buttons and play/pause buttons will trigger volume change and triggering of Apple Music.
+不设置 `BATON_SIGN_IDENTITY` 时仍使用临时签名，行为与之前一致。
 
-A diagnostic log is written to `/tmp/baton.log` (NSLog is redacted under hardened runtime, so Baton uses file-based logging).
+## 权限与首次运行
 
----
+首次启动时需要在“系统设置 → 隐私与安全性”中允许：
 
-### Why two paths for the same button?
+- 辅助功能：发送键盘和鼠标事件
+- 输入监控：读取并拦截遥控器输入
+- 蓝牙：连接 Siri Remote 并读取电量
 
-A physical Siri Remote press can arrive two ways:
+建议将 `Baton.app` 移到 `/Applications` 后再授权。临时签名会随二进制变化，重新构建后 macOS 可能要求重新授权。
 
-1. **HID (seized)** — `RemoteInputHandler` reads raw HID input.
-2. **AVRCP → NX_SYSDEFINED** — Bluetooth media-key events `MediaKeyInterceptor` catches via an event tap.
+如果“输入监控”中没有自动出现 Baton，请点击 `+` 手动添加 `Baton.app`。缺少该权限时，音量键或播放键可能仍被系统或音乐应用处理。
 
-Both paths converge on the same button mapping through a 200 ms debounce (static `lastProcessedButton`/`lastProcessedTime` on `RemoteInputHandler`), so a press fires the mapped action exactly once regardless of which path delivers it first.
+诊断日志写入 `/tmp/baton.log`。
 
-### The NX_SYSDEFINED hack (media keys)
+开发时可以运行独立检查：
 
-macOS has no public API for synthesizing or intercepting media keys (Play/Pause, Next, Previous, Volume, Mute). Both `MediaKeyInterceptor` and `MediaController` rely on the same undocumented `NSSystemDefined` event format used internally by the Human Interface Device stack:
+```bash
+./Tests/run-tests.sh                 # 触控表面识别单元测试
+./Tests/run-touch-surface-probe.sh   # 枚举本机 Multitouch 设备及尺寸
+./script/build_and_run.sh --verify   # 构建、打包、启动并确认进程
+```
 
-- **Event type** `NX_SYSDEFINED` (raw value `14`) with **subtype `8`**.
-- **Key code and state packed into `data1`** as a bitfield: `(nxKeyCode << 16) | (keyState << 8)`, where `0xA` = key down and `0xB` = key up.
-- **Magic `modifierFlags`** (`0xa00` for down, `0xb00` for up) mirror the state nibble — real media key events arrive with these flags, and some consumers (e.g. Music.app) won't accept posted events without them.
+## 项目结构
 
-`MediaKeyInterceptor` installs a **`.cghidEventTap`** at `.headInsertEventTap` so it sees `NX_SYSDEFINED` events *before* the system dispatcher routes them to Music/iTunes/etc. — a session-level tap would arrive too late. It then manually unpacks `data1` to recover the key code and down/up state. The tap is automatically re-enabled on `tapDisabledByTimeout`, `tapDisabledByUserInput`, and `NSWorkspace.didWakeNotification`, because macOS silently disables event taps across sleep/wake and input stalls.
+- `SiriRemoteApp.swift`：应用启动、权限流程和组件装配
+- `RemoteDetector.swift` / `RemoteInputHandler.swift`：遥控器发现、HID 抢占和按键解析
+- `TouchHandler.swift`：触控板输入、滚动和滑动识别
+- `RemoteTouchSurface.swift`：区分 Siri Remote 与 Magic Trackpad
+- `MotionCapture.swift`：运动数据启用与保活
+- `MenuBarManager.swift`：配置、映射持久化和动作执行
+- `SettingsUI/`：生产使用的原生 SwiftUI 设置界面
+- `web/`：旧版 React 界面的设计参考，不会打包进应用
+- `ble_probe.swift`、`MotionProbe.swift`、`AudioProbe.swift`：硬件研究工具
 
-`MediaController` goes the other way: it **fabricates** matching `NSSystemDefined` events via `NSEvent.otherEvent(...)` with the same magic flags, subtype, and `data1` packing, then posts the underlying `CGEvent` to the session tap. A **`usleep(50_000)`** gap between the down and up events is required — without the 50 ms pause, macOS coalesces or drops the pair and the media key is ignored.
+## 技术说明与限制
 
-This is the standard reverse-engineered technique (originally surfaced in projects like SPMediaKeyTap and Noteify), but it is entirely undocumented and can change without notice in any macOS release.
+Baton 依赖 Apple 私有的 `MultitouchSupport` 框架，并使用未公开的 `NX_SYSDEFINED` 媒体键事件格式，因此不适合提交 Mac App Store，也可能受未来 macOS 更新影响。
 
----
+同一次物理按键可能同时从 HID 和 AVRCP 到达。Baton 在 HID 层抢占设备，并通过 200 ms 去重窗口把两条路径汇合到同一映射，避免重复触发。媒体键的按下和抬起之间保留必要延迟，防止 macOS 合并或丢弃事件。
 
-## Caveats
+用户设置保存在 `UserDefaults` 中，包括按键/滑动映射、自定义文本、自定义快捷键、配置、应用预设、灵敏度和外观。
 
-- Uses Apple's **private `MultitouchSupport` framework** — not App Store compatible; Apple may change or remove this API in future macOS releases.
-- **NX_SYSDEFINED media-key synthesis and interception is undocumented** — relies on magic modifier-flag values (`0xa00`/`0xb00`), subtype `8`, and a manual `data1` bitfield layout. Apple could break this in any release.
+## 致谢
 
-### Long-term direction: Xbox Adaptive Joystick
+Baton 基于 [Remotastic](https://github.com/lauschue/Remotastic)（[@lauschue](https://github.com/lauschue)）继续开发。原项目提供了 Siri Remote HID、`MultitouchSupport` 接入和菜单栏应用的基础实现。
 
-Between the private `MultitouchSupport` framework and the undocumented `NX_SYSDEFINED` plumbing, the Siri Remote path is built on two proprietary, reverse-engineered interfaces that Apple can break at any time. Baton may migrate its primary input to the **Xbox Adaptive Joystick**, which speaks standard USB HID / GameController.framework and avoids every proprietary hazard above. That gives a more permanent, App Store–viable foundation — and, as a bonus, a genuinely accessible input device — while the Siri Remote support remains as a best-effort path for users who already own one.
-- Tested on **Siri Remote 1st-gen (A1513, product ID `0x266`)**. Button HID codes are a superset likely to cover the 2nd-gen Siri Remote (A2540) as well, but its click-ring directional presses and dedicated Mute button are not yet mapped in `identifyButton`.
-- Ad-hoc signing ties TCC permission grants to the exact binary hash — rebuilds may require re-approval in System Settings.
+部分图标来自 [The Noun Project](https://thenounproject.com/)：
 
----
+- [Arrow Up by Dayeong Kim](https://thenounproject.com/icon/arrow-up-6066125/)
+- [Microphone by Alvida](https://thenounproject.com/icon/microphone-8162320/)
+- [Radio by Kiran Shastry](https://thenounproject.com/icon/radio-2338991/)
 
-## Credits
+## License
 
- **Fork & improvements.** Baton is built on top of [Remotastic](https://github.com/lauschue/Remotastic) by [@lauschue](https://github.com/lauschue), which provided the foundational Siri-Remote HID handling, MultitouchSupport integration, and menu-bar scaffolding. Baton extends it with configurable Claude Code workflows, keyboard shortcuts, push-to-talk and swipe gesture.
-- Icons from [The Noun Project](https://thenounproject.com/):
-  - [Arrow Up by Dayeong Kim](https://thenounproject.com/icon/arrow-up-6066125/)
-  - [Microphone by Alvida](https://thenounproject.com/icon/microphone-8162320/)
-  - [Radio by Kiran Shastry](https://thenounproject.com/icon/radio-2338991/)
+详见 [LICENSE](LICENSE)。

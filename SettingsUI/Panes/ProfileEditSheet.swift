@@ -206,14 +206,16 @@ struct ProfileEditSheet: View {
                         readOnly: isDefault
                     )
 
-                    mapHeadRow(cols: ["手势", "触发方式", "执行操作"])
+                    if mappings.trackpadMode == "gesture" {
+                        mapHeadRow(cols: ["手势", "触发方式", "执行操作"])
 
-                    // Swipe rows
-                    ForEach(Array(mappings.swipes.enumerated()), id: \.element.id) { idx, swipe in
-                        if idx > 0 {
-                            mapRowDivider
+                        // Directional shortcuts only apply in gesture mode.
+                        ForEach(Array(mappings.swipes.enumerated()), id: \.element.id) { idx, swipe in
+                            if idx > 0 {
+                                mapRowDivider
+                            }
+                            swipeRowBinding(swipe)
                         }
-                        swipeRowBinding(swipe)
                     }
 
                     // 滚动速度 picker
@@ -221,11 +223,13 @@ struct ProfileEditSheet: View {
                     scrollSpeedRow
                 }
             }
-            Text("斜杠命令只会输入到输入框，需手动回车确认执行；映射立即生效并自动保存。")
-                .font(BatonFont.text(size: 12))
-                .foregroundStyle(Color.batonMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 14)
+            if mappings.trackpadMode == "gesture" {
+                Text("斜杠命令只会输入到输入框，需手动回车确认执行；映射立即生效并自动保存。")
+                    .font(BatonFont.text(size: 12))
+                    .foregroundStyle(Color.batonMuted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 14)
+            }
         }
     }
 

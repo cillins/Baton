@@ -14,7 +14,11 @@ class MediaController {
 
     func sendMediaKey(_ keyType: MediaKeyInterceptor.MediaKeyType) {
         guard let nxCode = nxKeyCode(for: keyType) else { return }
-        postSystemDefinedKey(nxKeyCode: nxCode)
+        sendSystemKey(nxKeyCode: nxCode)
+    }
+
+    func sendSystemKey(nxKeyCode: Int32) {
+        postSystemDefinedKey(nxKeyCode: nxKeyCode)
     }
 
     private func nxKeyCode(for keyType: MediaKeyInterceptor.MediaKeyType) -> Int32? {

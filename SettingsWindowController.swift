@@ -115,8 +115,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        // Return to pure menu-bar (LSUIElement) form: no Dock icon, no window.
-        NSApp.setActivationPolicy(.accessory)
+        if UserDefaults.standard.bool(forKey: AppPreferenceKey.keepRunningWhenClosed) {
+            // Return to pure menu-bar (LSUIElement) form: no Dock icon, no window.
+            NSApp.setActivationPolicy(.accessory)
+        } else {
+            NSApp.terminate(nil)
+        }
     }
 }
 

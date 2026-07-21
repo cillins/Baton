@@ -35,6 +35,12 @@ struct ButtonOptionVM: Identifiable, Hashable {
     var id: String { raw }
 }
 
+enum MappingEditOptionID {
+    static let current = "__current_mapping__"
+    static let recordKey = "__record_new_key__"
+    static let inputText = "__input_new_text__"
+}
+
 struct ButtonRowVM: Identifiable, Hashable {
     let key: String
     let label: String
@@ -90,6 +96,7 @@ struct KeyCombo: Hashable {
     var keyCode: Int
     var modifiers: [String]   // "cmd","shift","opt","ctrl"
     var label: String
+    var systemKeyCode: Int? = nil
 }
 
 struct EditMappingsVM {
@@ -128,6 +135,11 @@ final class SettingsViewModel: ObservableObject {
     @Published var settingsView: Bool = false
     @Published var editMappings: EditMappingsVM?
     @Published var toast: String?
+
+    // General preferences
+    @Published private(set) var launchAtLogin = false
+    @Published private(set) var keepRunningWhenClosed = true
+    @Published private(set) var showBatteryInMenuBar = false
 
     // Appearance — read from MB on init, propagated back when user picks in UI.
     @Published var appearance: AppearanceMode = .auto {
@@ -170,6 +182,15 @@ final class SettingsViewModel: ObservableObject {
             self.appearance = mode
         }
 
+        launchAtLogin = LoginItemManager.isEnabled
+        keepRunningWhenClosed = UserDefaults.standard.bool(
+            forKey: AppPreferenceKey.keepRunningWhenClosed
+        )
+        showBatteryInMenuBar = UserDefaults.standard.bool(
+            forKey: AppPreferenceKey.showBatteryInMenuBar
+        )
+        menuBarManager.setShowsBatteryPercentage(showBatteryInMenuBar)
+
         // Cache a single mutation callback so the VM gets fresh state when the
         // active profile flips (manual switch or app-activation binding).
         menuBarManager.onCurrentProfileChange = { [weak self] _ in
@@ -210,7 +231,7 @@ final class SettingsViewModel: ObservableObject {
                 action: action,
                 customText: text ?? "",
                 customKey: combo.flatMap(Self.keyComboFromDict),
-                options: Self.optionsForButton(row.key, text: text, combo: combo)
+                options: Self.optionsForButton(action: action, text: text, combo: combo)
             )
         }
 
@@ -231,7 +252,7 @@ final class SettingsViewModel: ObservableObject {
                 action: action,
                 customText: text ?? "",
                 customKey: combo.flatMap(Self.keyComboFromDict),
-                options: Self.optionsForSwipe(dir, text: text, combo: combo)
+                options: Self.optionsForSwipe(action: action, text: text, combo: combo)
             )
         }
 
@@ -269,7 +290,7 @@ final class SettingsViewModel: ObservableObject {
                 action: action.rawValue,
                 customText: text ?? "",
                 customKey: combo.flatMap(Self.keyComboFromDict),
-                options: Self.optionsForButton(row.key, text: text, combo: combo)
+                options: Self.optionsForButton(action: action.rawValue, text: text, combo: combo)
             )
         }
 
@@ -288,7 +309,7 @@ final class SettingsViewModel: ObservableObject {
                 action: action.rawValue,
                 customText: text ?? "",
                 customKey: combo.flatMap(Self.keyComboFromDict),
-                options: Self.optionsForSwipe(dir, text: text, combo: combo)
+                options: Self.optionsForSwipe(action: action.rawValue, text: text, combo: combo)
             )
         }
 
@@ -363,6 +384,36 @@ final class SettingsViewModel: ObservableObject {
 
     // MARK: - Intents (1:1 with old WebBridge handler cases)
 
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            try LoginItemManager.setEnabled(enabled)
+            launchAtLogin = LoginItemManager.isEnabled
+            if LoginItemManager.requiresApproval {
+                showToast("已添加登录项，请在“系统设置 → 通用 → 登录项”中允许")
+            } else {
+                showToast(enabled ? "已开启登录时启动" : "已关闭登录时启动")
+            }
+        } catch {
+            launchAtLogin = LoginItemManager.isEnabled
+            showToast("无法修改登录项：\(error.localizedDescription)")
+        }
+    }
+
+    func setKeepRunningWhenClosed(_ enabled: Bool) {
+        keepRunningWhenClosed = enabled
+        UserDefaults.standard.set(enabled, forKey: AppPreferenceKey.keepRunningWhenClosed)
+    }
+
+    func setShowBatteryInMenuBar(_ enabled: Bool) {
+        showBatteryInMenuBar = enabled
+        menuBarManager?.setShowsBatteryPercentage(enabled)
+    }
+
+    func openHelp() {
+        guard let url = URL(string: "https://github.com/cillins/Baton") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     func setProfileMapping(profileId: String, target: String, key: String, actionRaw: String) {
         menuBarManager?.setProfileMapping(profileId: profileId, target: target, key: key, actionRaw: actionRaw)
         reload()
@@ -401,11 +452,14 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func setCustomKey(target: String, key: String, combo: KeyCombo) {
-        let dict: [String: Any] = [
+        var dict: [String: Any] = [
             "keyCode": combo.keyCode,
             "modifiers": combo.modifiers,
             "label": combo.label,
         ]
+        if let systemKeyCode = combo.systemKeyCode {
+            dict["systemKeyCode"] = systemKeyCode
+        }
         if target == "button" {
             menuBarManager?.setCustomKeyCombo(forButton: key, combo: dict)
         } else if let dir = SwipeDirection(rawValue: key) {
@@ -514,60 +568,63 @@ final class SettingsViewModel: ObservableObject {
     // MARK: - Appearance
 
     private func applyAppearanceToWindow() {
-        // Find the settings window and apply NSAppearance. .auto lets the
-        // system colorScheme flow through SwiftUI normally.
+        // Apply the choice at application level so every Baton window and
+        // popover resolves the same appearance. .auto restores system flow.
         UserDefaults.standard.set(appearance.rawValue, forKey: "appearanceMode")
-        guard let app = NSApp.windows.first(where: { $0.title == "Baton" }) else { return }
-        app.appearance = appearance.nsAppearance
+        NSApp.appearance = appearance.nsAppearance
+        NSApp.windows.forEach { $0.appearance = appearance.nsAppearance }
     }
 
     // MARK: - Helpers
 
     /// JS-recorded glyphs use Unicode chars that don't match Mac keyboard reality.
     /// Same normalization MenuBarManager uses for its own customKey display.
-    static let customKeyGlyphNormalization: [String: String] = [
-        "↩": "⏎",
-        "⎋": "esc",
-    ]
-
     static func keyComboFromDict(_ d: [String: Any]) -> KeyCombo? {
         guard let keyCode = d["keyCode"] as? Int,
               let modifiers = d["modifiers"] as? [String] else { return nil }
-        let label = (d["label"] as? String).map { customKeyGlyphNormalization[$0] ?? $0 } ?? ""
-        return KeyCombo(keyCode: keyCode, modifiers: modifiers, label: label)
+        let label = (d["label"] as? String).map {
+            MenuBarManager.customKeyGlyphNormalization[$0] ?? $0
+        } ?? ""
+        return KeyCombo(keyCode: keyCode, modifiers: modifiers, label: label,
+                        systemKeyCode: d["systemKeyCode"] as? Int)
     }
 
-    /// Build the option list for a button row — same as old WebBridge.pushMappings.
-    private static func optionsForButton(_ key: String, text: String?, combo: [String: Any]?) -> [ButtonOptionVM] {
-        MenuBarManager.availableActions(forButton: key).map { a in
-            ButtonOptionVM(raw: a.rawValue,
-                           label: customOptionLabel(base: a.displayName, raw: a.rawValue, text: text, combo: combo))
-        }
+    /// Mapping menus are compact editors, not action catalogs. The first item
+    /// mirrors the current persisted action; the other two open the existing
+    /// inline editors for replacing it with a recorded key or typed text.
+    private static func optionsForButton(action: String, text: String?, combo: [String: Any]?) -> [ButtonOptionVM] {
+        let base = ButtonAction(rawValue: action)?.displayName ?? action
+        return editingOptions(
+            currentLabel: customOptionLabel(base: base, raw: action, text: text, combo: combo)
+        )
     }
 
-    private static func optionsForSwipe(_ dir: SwipeDirection, text: String?, combo: [String: Any]?) -> [ButtonOptionVM] {
-        MenuBarManager.availableSwipeActions(for: dir).map { a in
-            ButtonOptionVM(raw: a.rawValue,
-                           label: customOptionLabel(base: a.displayName, raw: a.rawValue, text: text, combo: combo))
-        }
+    private static func optionsForSwipe(action: String, text: String?, combo: [String: Any]?) -> [ButtonOptionVM] {
+        let base = SwipeAction(rawValue: action)?.displayName ?? action
+        return editingOptions(
+            currentLabel: customOptionLabel(base: base, raw: action, text: text, combo: combo)
+        )
     }
 
-    /// Option label for custom actions: shows the configured payload inline
-    /// ("自定义文本：/compact" / "自定义按键：⌘⇧P"), or "…" placeholder when unset.
+    private static func editingOptions(currentLabel: String) -> [ButtonOptionVM] {
+        [
+            ButtonOptionVM(raw: MappingEditOptionID.current, label: currentLabel),
+            ButtonOptionVM(raw: MappingEditOptionID.recordKey, label: "录制新按键"),
+            ButtonOptionVM(raw: MappingEditOptionID.inputText, label: "输入新文本"),
+        ]
+    }
+
+    /// Custom actions use the same display logic as the menu-bar picker: once
+    /// configured, show only the payload ("/compact" / "⌘⇧P") like any other
+    /// action label. The inline editor below the row already communicates that
+    /// the action is custom, so repeating that prefix here adds visual noise.
     private static func customOptionLabel(base: String, raw: String, text: String?, combo: [String: Any]?) -> String {
         switch raw {
         case ButtonAction.customText.rawValue:
-            if let t = text, !t.isEmpty {
-                let clipped = t.count > 12 ? String(t.prefix(12)) + "…" : t
-                return "自定义文本：\(clipped)"
-            }
-            return "自定义文本…"
+            return MenuBarManager.customTextDisplayLabel(text, fallback: base)
         case ButtonAction.customKey.rawValue:
-            if let label = combo?["label"] as? String, !label.isEmpty {
-                let normalized = customKeyGlyphNormalization[label] ?? label
-                return "自定义按键：\(normalized)"
-            }
-            return "自定义按键…"
+            guard let combo else { return base }
+            return MenuBarManager.customKeyDisplayLabel(combo: combo, fallback: base)
         default:
             return base
         }

@@ -4,7 +4,7 @@ import { viteSingleFile } from 'vite-plugin-singlefile'
 
 export default defineConfig({
   plugins: [react(), viteSingleFile()],
-  // WKWebView loads index.html via file:// - singlefile inlines all JS/CSS
+  // Keep the reference build self-contained for easy local preview.
   // so there are no module/CORS issues with the file:// origin.
   base: './',
   build: {
