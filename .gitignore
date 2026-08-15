@@ -31,6 +31,8 @@ Thumbs.db
 .vscode/
 .idea/
 .qoder/
+.codex/
+.omc/
 
 # Temporary files
 *.log
