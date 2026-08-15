@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="banner.png" alt="Baton — 用 Siri Remote 控制 Mac" width="100%">
-</p>
-
 # Baton
 
 Baton 是一款 macOS 菜单栏应用，把 Apple Siri Remote 变成可自定义的鼠标、键盘、演示器和 Claude Code 控制器。
