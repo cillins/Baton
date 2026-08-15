@@ -819,10 +819,8 @@ final class SettingsViewModel: ObservableObject {
     private static func cachedAppVersion() -> String {
         if let v = cachedVersion { return v }
         let info = Bundle.main.infoDictionary
-        let v = info?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let b = info?["CFBundleVersion"] as? String ?? "1"
-        let s = "\(v) (\(b))"
-        cachedVersion = s
-        return s
+        let version = info?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        cachedVersion = version
+        return version
     }
 }

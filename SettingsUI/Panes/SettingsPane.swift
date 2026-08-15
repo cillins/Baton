@@ -162,7 +162,7 @@ struct SettingsPane: View {
             GroupLabel("关于")
             GroupCard {
                 kvRow("版本") {
-                    Text(vm.device.version.isEmpty ? "1.0 (1)" : vm.device.version)
+                    Text(vm.device.version.isEmpty ? "1.0.0" : vm.device.version)
                         .font(BatonFont.mono(size: 13))
                         .foregroundStyle(Color.batonFg)
                 }
