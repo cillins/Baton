@@ -39,6 +39,7 @@ Thumbs.db
 
 # Generated icon files
 *.icns
+!Resources/BatonIconMaster.icns
 
 # macOS
 .AppleDouble

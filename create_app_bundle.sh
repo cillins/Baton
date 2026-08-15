@@ -7,7 +7,7 @@ set -e
 APP_NAME="Baton"
 APP_BUNDLE="${APP_NAME}.app"
 VERSION="${BATON_VERSION:-1.0.0}"
-BUILD_NUMBER="${BATON_BUILD_NUMBER:-3}"
+BUILD_NUMBER="${BATON_BUILD_NUMBER:-4}"
 
 if [ ! -f "$APP_NAME" ]; then
     echo "Error: $APP_NAME executable not found."
@@ -61,17 +61,22 @@ else
     echo "Warning: libopus.0.dylib not found; remote microphone decoding will be unavailable."
 fi
 
-# Regenerate the app icon from the tracked master so clean checkouts never
-# depend on an ignored, stale Baton.icns build artifact.
-swift gen_icon.swift
-iconutil -c icns Baton.iconset -o Baton.icns
+# Use the finished icon as the canonical source without redrawing or resizing
+# it. The file already contains every standard macOS representation.
+ICON_SOURCE="Resources/BatonIconMaster.icns"
+if [ ! -f "$ICON_SOURCE" ]; then
+    echo "Error: app icon not found: $ICON_SOURCE" >&2
+    exit 1
+fi
 
 # Compile the same artwork into an asset catalog. macOS 26 uses this modern
 # representation instead of placing a legacy full icon on a compatibility
 # plate. Keep Baton.icns below as the fallback for macOS 12–25.
 ASSET_CATALOG_DIR="$(mktemp -d /tmp/baton-assets.XXXXXX)"
 mkdir -p "${ASSET_CATALOG_DIR}/BatonAssets.xcassets/Baton.appiconset"
-cp Baton.iconset/*.png \
+iconutil -c iconset "$ICON_SOURCE" \
+    -o "${ASSET_CATALOG_DIR}/Baton.iconset"
+cp "${ASSET_CATALOG_DIR}"/Baton.iconset/*.png \
     "${ASSET_CATALOG_DIR}/BatonAssets.xcassets/Baton.appiconset/"
 cp Resources/AppIconContents.json \
     "${ASSET_CATALOG_DIR}/BatonAssets.xcassets/Baton.appiconset/Contents.json"
@@ -84,14 +89,9 @@ xcrun actool \
     "${ASSET_CATALOG_DIR}/BatonAssets.xcassets"
 rm -rf "$ASSET_CATALOG_DIR"
 
-# Copy icon if it exists
-if [ -f "Baton.icns" ]; then
-    cp "Baton.icns" "${APP_BUNDLE}/Contents/Resources/Baton.icns"
-    echo "Icon added to app bundle"
-elif [ -f "SiriRemote.icns" ]; then
-    cp "SiriRemote.icns" "${APP_BUNDLE}/Contents/Resources/Baton.icns"
-    echo "Icon added to app bundle"
-fi
+# Preserve the supplied ICNS byte-for-byte as the fallback representation.
+cp "$ICON_SOURCE" "${APP_BUNDLE}/Contents/Resources/Baton.icns"
+echo "Icon added to app bundle"
 
 # Copy menu bar icon resources
 if [ -d "Resources" ]; then
