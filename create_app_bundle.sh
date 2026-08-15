@@ -61,6 +61,11 @@ else
     echo "Warning: libopus.0.dylib not found; remote microphone decoding will be unavailable."
 fi
 
+# Regenerate the app icon from the tracked master so clean checkouts never
+# depend on an ignored, stale Baton.icns build artifact.
+swift gen_icon.swift
+iconutil -c icns Baton.iconset -o Baton.icns
+
 # Copy icon if it exists
 if [ -f "Baton.icns" ]; then
     cp "Baton.icns" "${APP_BUNDLE}/Contents/Resources/Baton.icns"
