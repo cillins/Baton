@@ -104,7 +104,7 @@ open Baton.app
 发布时可显式传入版本号和构建号，确保应用版本、DMG 文件名和 Git 标签一致：
 
 ```bash
-BATON_VERSION="1.0.0" BATON_BUILD_NUMBER="2" ./create_app_bundle.sh
+BATON_VERSION="1.0.0" BATON_BUILD_NUMBER="3" ./create_app_bundle.sh
 ./create_dmg.sh
 ```
 

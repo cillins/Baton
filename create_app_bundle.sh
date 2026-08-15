@@ -7,7 +7,7 @@ set -e
 APP_NAME="Baton"
 APP_BUNDLE="${APP_NAME}.app"
 VERSION="${BATON_VERSION:-1.0.0}"
-BUILD_NUMBER="${BATON_BUILD_NUMBER:-2}"
+BUILD_NUMBER="${BATON_BUILD_NUMBER:-3}"
 
 if [ ! -f "$APP_NAME" ]; then
     echo "Error: $APP_NAME executable not found."
@@ -66,6 +66,24 @@ fi
 swift gen_icon.swift
 iconutil -c icns Baton.iconset -o Baton.icns
 
+# Compile the same artwork into an asset catalog. macOS 26 uses this modern
+# representation instead of placing a legacy full icon on a compatibility
+# plate. Keep Baton.icns below as the fallback for macOS 12–25.
+ASSET_CATALOG_DIR="$(mktemp -d /tmp/baton-assets.XXXXXX)"
+mkdir -p "${ASSET_CATALOG_DIR}/BatonAssets.xcassets/Baton.appiconset"
+cp Baton.iconset/*.png \
+    "${ASSET_CATALOG_DIR}/BatonAssets.xcassets/Baton.appiconset/"
+cp Resources/AppIconContents.json \
+    "${ASSET_CATALOG_DIR}/BatonAssets.xcassets/Baton.appiconset/Contents.json"
+xcrun actool \
+    --compile "${APP_BUNDLE}/Contents/Resources" \
+    --platform macosx \
+    --minimum-deployment-target 12.0 \
+    --app-icon Baton \
+    --output-partial-info-plist "${ASSET_CATALOG_DIR}/asset-info.plist" \
+    "${ASSET_CATALOG_DIR}/BatonAssets.xcassets"
+rm -rf "$ASSET_CATALOG_DIR"
+
 # Copy icon if it exists
 if [ -f "Baton.icns" ]; then
     cp "Baton.icns" "${APP_BUNDLE}/Contents/Resources/Baton.icns"
@@ -107,6 +125,8 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 	<key>CFBundleShortVersionString</key>
 	<string>$VERSION</string>
 	<key>CFBundleIconFile</key>
+	<string>Baton</string>
+	<key>CFBundleIconName</key>
 	<string>Baton</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Baton Contributors</string>
