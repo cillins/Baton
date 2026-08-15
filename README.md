@@ -4,7 +4,7 @@ Baton 是一款 macOS 菜单栏应用，把 Apple Siri Remote 变成可自定义
 
 通过遥控器的实体按键、触控板手势与陀螺仪，你可以移动光标、滚动、拖拽、发送快捷键、输入文本或执行 Claude Code 斜杠命令。所有映射都在原生 SwiftUI 设置窗口中完成，不再通过菜单栏子菜单配置。
 
-> 当前暂不提供可下载发行版、自动更新或应用内更新检查。请按照下方步骤从源码构建。
+> 安装包可从 [GitHub Releases](https://github.com/cillins/Baton/releases) 下载。当前公开构建尚未使用 Developer ID 公证；首次打开时如被 Gatekeeper 拦截，请在“系统设置 → 隐私与安全性”中选择“仍要打开”。项目暂不提供自动更新或应用内更新检查。
 
 ## 支持的遥控器
 
@@ -100,6 +100,13 @@ open Baton.app
 `create_app_bundle.sh` 会生成 `Baton.app`、复制图标、虚拟麦克风驱动、采集辅助程序和 Opus 库，并使用 `Baton.entitlements` 进行签名。
 
 `create_dmg.sh` 会在 `dist/` 下生成包含 `Baton.app` 和“应用程序”快捷方式的安装镜像。
+
+发布时可显式传入版本号和构建号，确保应用版本、DMG 文件名和 Git 标签一致：
+
+```bash
+BATON_VERSION="1.0.0" BATON_BUILD_NUMBER="1" ./create_app_bundle.sh
+./create_dmg.sh
+```
 
 如需生成仅供测试的麦克风安装镜像，可显式传入用户自行取得的 Apple macOS 配置；脚本会校验其 Payload，配置只放在 DMG 根目录，不会进入应用包：
 

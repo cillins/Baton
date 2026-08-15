@@ -6,6 +6,8 @@ set -e
 
 APP_NAME="Baton"
 APP_BUNDLE="${APP_NAME}.app"
+VERSION="${BATON_VERSION:-1.0.0}"
+BUILD_NUMBER="${BATON_BUILD_NUMBER:-1}"
 
 if [ ! -f "$APP_NAME" ]; then
     echo "Error: $APP_NAME executable not found."
@@ -96,9 +98,9 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleVersion</key>
-	<string>1.0</string>
+	<string>$BUILD_NUMBER</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$VERSION</string>
 	<key>CFBundleIconFile</key>
 	<string>Baton</string>
 	<key>NSHumanReadableCopyright</key>
