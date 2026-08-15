@@ -52,8 +52,19 @@ for frame in frames {
     context.cgContext.clear(
         CGRect(x: 0, y: 0, width: frame.pixels, height: frame.pixels)
     )
+
+    // Modern macOS icons keep their opaque silhouette inside the canvas. A
+    // full-bleed legacy .icns is normalized onto a white compatibility plate
+    // by Launch Services. Match the native icon safe area with 7% transparent
+    // padding on every side.
+    let inset = CGFloat(frame.pixels) * 0.07
     masterImage.draw(
-        in: NSRect(x: 0, y: 0, width: frame.pixels, height: frame.pixels),
+        in: NSRect(
+            x: inset,
+            y: inset,
+            width: CGFloat(frame.pixels) - inset * 2,
+            height: CGFloat(frame.pixels) - inset * 2
+        ),
         from: .zero,
         operation: .copy,
         fraction: 1
