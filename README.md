@@ -175,7 +175,9 @@ Baton 依赖 Apple 私有的 `MultitouchSupport` 框架，并使用未公开的 
 
 ## 致谢
 
-Baton 基于 [Remotastic](https://github.com/lauschue/Remotastic)（[@lauschue](https://github.com/lauschue)）继续开发。原项目提供了 Siri Remote HID、`MultitouchSupport` 接入和菜单栏应用的基础实现。
+Baton 是从 [HyperVibe](https://github.com/machinarii/hypervibe)（[@machinarii](https://github.com/machinarii)）fork 后继续开发的项目。HyperVibe 提供了通过 Apple TV Remote 进行按键与手势自定义、Claude Code 工作流控制等核心基础；感谢原作者的开源工作。
+
+HyperVibe 本身基于 [Remotastic](https://github.com/lauschue/Remotastic)（[@lauschue](https://github.com/lauschue)），后者提供了 Siri Remote HID、`MultitouchSupport` 接入和菜单栏应用的基础实现。
 
 部分图标来自 [The Noun Project](https://thenounproject.com/)：
 
