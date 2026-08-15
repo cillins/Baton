@@ -152,14 +152,12 @@ struct PermissionGuideView: View {
 
     private var header: some View {
         VStack(spacing: 8) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.batonAccent.opacity(0.13))
-                Image(systemName: "av.remote.fill")
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(Color.batonAccent)
-            }
-            .frame(width: 62, height: 62)
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 62, height: 62)
+                .accessibilityHidden(true)
 
             Text("设置 Baton")
                 .font(BatonFont.display(size: 24, weight: .bold))

@@ -7,7 +7,7 @@ set -e
 APP_NAME="Baton"
 APP_BUNDLE="${APP_NAME}.app"
 VERSION="${BATON_VERSION:-1.0.0}"
-BUILD_NUMBER="${BATON_BUILD_NUMBER:-4}"
+BUILD_NUMBER="${BATON_BUILD_NUMBER:-5}"
 
 if [ ! -f "$APP_NAME" ]; then
     echo "Error: $APP_NAME executable not found."
