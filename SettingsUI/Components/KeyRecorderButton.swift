@@ -4,23 +4,19 @@
 //
 //  Records a chord (keyCode + modifiers) and reports it as a `KeyCombo`.
 //
-//  Matches React `ProfileEditModal.jsx:KeyRecorderButton` exactly:
+//  Recording behavior:
 //   - rec-label: 13px, muted, min-width 64. `.has-combo`: color inherit (fg),
 //     weight 600.
 //   - Button: `.abtn` (primary) when recording, `.abtn-ghost` when idle.
-//     Label: "录制" idle, "按下组合键…（Esc 取消）" recording.
+//     Label: "录制" idle, "按下组合键…" recording. Clicking it again stops.
 //
-//  Implementation note: the React version needed a DOM-to-CGKeyCode table
-//  because `event.code` is KeyboardEvent.code (string) and Swift only knows
-//  CGKeyCode. In AppKit, `NSEvent.keyCode` IS the CGKeyCode already, so we
-//  can skip the mapping table entirely. `event.charactersIgnoringModifiers`
+//  AppKit's `NSEvent.keyCode` is already a CGKeyCode, so it can be captured
+//  directly. `event.charactersIgnoringModifiers`
 //  gives us the glyph to display (single chars for letters/digits, special
 //  keys like ⏎/⎋/←/-> are recognized by their keyCode instead).
 //
-//  Esc with no modifiers cancels. The same glyph normalization as the
-//  React side (`"↩" -> "⏎"`, `"⎋" -> "esc"`) runs through `MenuBarManager`'s
-//  dict so a recorded combo renders identically to the preset that maps to
-//  the same key.
+//  Glyph normalization (`"↩" -> "⏎"`, `"⎋" -> "esc"`) runs through
+//  `MenuBarManager` so recorded and preset combos render consistently.
 //
 
 import SwiftUI
@@ -31,7 +27,7 @@ struct KeyRecorderButton: View {
     var placeholder: String = "未设置"
     var existing: String?
     var onCommit: (KeyCombo) -> Void
-    var onClear: (() -> Void)?  // accepted for API stability; not rendered (matches React)
+    var onClear: (() -> Void)?  // accepted for API stability; not rendered
 
     @State private var recording = false
 
@@ -51,7 +47,7 @@ struct KeyRecorderButton: View {
             // CSS .abtn (recording) / .abtn-ghost (idle): padding 6 16,
             // radius 8, font 13/500. Primary: accent bg, accent-on text.
             // Ghost: transparent bg, accent text, 1px border.
-            Button(recording ? "按下组合键…（Esc 取消）" : "录制") {
+            Button(recording ? "按下组合键…" : "录制") {
                 recording.toggle()
             }
             .buttonStyle(.plain)
@@ -72,8 +68,6 @@ struct KeyRecorderButton: View {
         .background(KeyRecorderMonitor(active: recording) { combo in
             recording = false
             onCommit(combo)
-        } onCancel: {
-            recording = false
         })
     }
 }
@@ -83,16 +77,15 @@ struct KeyRecorderButton: View {
 private struct KeyRecorderMonitor: NSViewRepresentable {
     var active: Bool
     var onComplete: (KeyCombo) -> Void
-    var onCancel: () -> Void
 
     func makeNSView(context: Context) -> NSView {
         let v = NSView(frame: .zero)
-        context.coordinator.attach(active: active, onComplete: onComplete, onCancel: onCancel)
+        context.coordinator.attach(active: active, onComplete: onComplete)
         return v
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.attach(active: active, onComplete: onComplete, onCancel: onCancel)
+        context.coordinator.attach(active: active, onComplete: onComplete)
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -107,14 +100,12 @@ private struct KeyRecorderMonitor: NSViewRepresentable {
         private var eventTapSource: CFRunLoopSource?
         private var active = false
         private var onComplete: ((KeyCombo) -> Void)?
-        private var onCancel: (() -> Void)?
+        private var pendingModifier: KeyCombo?
 
         func attach(active: Bool,
-                    onComplete: @escaping (KeyCombo) -> Void,
-                    onCancel: @escaping () -> Void) {
+                    onComplete: @escaping (KeyCombo) -> Void) {
             if active && self.monitor == nil && self.eventTap == nil {
                 self.onComplete = onComplete
-                self.onCancel = onCancel
                 if !startEventTap() {
                     self.monitor = NSEvent.addLocalMonitorForEvents(
                         matching: [.keyDown, .flagsChanged]
@@ -141,11 +132,11 @@ private struct KeyRecorderMonitor: NSViewRepresentable {
             self.active = active
             if active {
                 self.onComplete = onComplete
-                self.onCancel = onCancel
             }
         }
 
         func detach() {
+            pendingModifier = nil
             MediaKeyInterceptor.recordingSystemKeyHandler = nil
             if let eventTap {
                 CGEvent.tapEnable(tap: eventTap, enable: false)
@@ -200,18 +191,30 @@ private struct KeyRecorderMonitor: NSViewRepresentable {
         /// the previously focused app/global-hotkey owner.
         private func capture(_ event: NSEvent) -> Bool {
             if event.type == .flagsChanged {
-                guard event.keyCode == kVK_Function,
-                      event.modifierFlags.contains(.function) else { return false }
-                onComplete?(KeyCombo(keyCode: kVK_Function, modifiers: ["fn"], label: "fn"))
+                if event.keyCode == kVK_Function {
+                    guard event.modifierFlags.contains(.function) else { return true }
+                    onComplete?(KeyCombo(keyCode: kVK_Function, modifiers: ["fn"], label: "fn"))
+                    return true
+                }
+                guard let modifier = Self.modifierSpec(
+                    keyCode: Int(event.keyCode), flags: event.modifierFlags
+                ) else { return false }
+                if modifier.isDown {
+                    pendingModifier = KeyCombo(
+                        keyCode: Int(event.keyCode),
+                        modifiers: [modifier.name],
+                        label: modifier.glyph
+                    )
+                } else if let pendingModifier,
+                          pendingModifier.keyCode == Int(event.keyCode) {
+                    self.pendingModifier = nil
+                    onComplete?(pendingModifier)
+                }
                 return true
             }
             guard event.type == .keyDown else { return false }
             if Self.isOnlyModifier(event) { return false }
-            if event.keyCode == kVK_Escape,
-               event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
-                onCancel?()
-                return true
-            }
+            pendingModifier = nil
             let modifiers = Self.modifierNames(event.modifierFlags)
             let label = modifiers.map { Self.modGlyph($0) }.joined() + Self.glyph(event: event)
             onComplete?(KeyCombo(
@@ -220,6 +223,24 @@ private struct KeyRecorderMonitor: NSViewRepresentable {
                 label: label
             ))
             return true
+        }
+
+        private static func modifierSpec(
+            keyCode: Int,
+            flags: NSEvent.ModifierFlags
+        ) -> (name: String, glyph: String, isDown: Bool)? {
+            switch keyCode {
+            case 54, 55:
+                return ("cmd", "⌘", flags.contains(.command))
+            case 56, 60:
+                return ("shift", "⇧", flags.contains(.shift))
+            case 58, 61:
+                return ("opt", "⌥", flags.contains(.option))
+            case 59, 62:
+                return ("ctrl", "⌃", flags.contains(.control))
+            default:
+                return nil
+            }
         }
 
         private static func isOnlyModifier(_ event: NSEvent) -> Bool {

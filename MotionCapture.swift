@@ -23,10 +23,20 @@ final class MotionCapture {
     private var attached: [IOHIDDevice] = []
     private var buffers: [UnsafeMutablePointer<UInt8>] = []
     private var keepaliveTimer: DispatchSourceTimer?
+    private var recoveryTimer: DispatchSourceTimer?
+    private var lastMotionReportNanos: UInt64 = 0
+    private var lastEnableAttemptNanos: UInt64 = 0
     private let queue = DispatchQueue(label: "com.baton.motion")
 
     func attach(_ device: IOHIDDevice) {
         queue.async {
+            let usagePage = IOHIDDeviceGetProperty(
+                device, kIOHIDPrimaryUsagePageKey as CFString
+            ) as? Int ?? -1
+            guard usagePage == 0xFF00 else {
+                rmDebug(String(format: "🌀 skipping non-vendor HID interface usagePage=0x%X", usagePage))
+                return
+            }
             guard !self.attached.contains(where: { $0 == device }) else { return }
             self.attached.append(device)
 
@@ -34,8 +44,10 @@ final class MotionCapture {
             self.buffers.append(buffer)
             IOHIDDeviceRegisterInputReportCallback(device, buffer, 512, motionReportCallback,
                                                    Unmanaged.passUnretained(self).toOpaque())
-            self.setReport(device, [0xA0, 0x01], label: "motion enable")
+            self.lastMotionReportNanos = 0
+            self.enableMotion(device, reason: "device ready")
             self.startKeepalive()
+            self.startRecoveryMonitor()
         }
     }
 
@@ -45,18 +57,32 @@ final class MotionCapture {
                 self.setReport(device, [0xA0, 0x00], label: "motion disable")
             }
             self.attached.removeAll()
+            self.lastMotionReportNanos = 0
+            self.lastEnableAttemptNanos = 0
             self.keepaliveTimer?.cancel()
             self.keepaliveTimer = nil
+            self.recoveryTimer?.cancel()
+            self.recoveryTimer = nil
         }
     }
 
-    private func setReport(_ device: IOHIDDevice, _ payload: [UInt8], label: String) {
+    @discardableResult
+    private func setReport(_ device: IOHIDDevice, _ payload: [UInt8], label: String) -> IOReturn {
         let bytes = payload
         let r = bytes.withUnsafeBufferPointer { ptr in
             IOHIDDeviceSetReport(device, kIOHIDReportTypeFeature, 255, ptr.baseAddress!, bytes.count)
         }
         if r != kIOReturnSuccess {
             rmDebug("🌀 \(label) failed: IOReturn=0x\(String(r, radix: 16))")
+        }
+        return r
+    }
+
+    private func enableMotion(_ device: IOHIDDevice, reason: String) {
+        lastEnableAttemptNanos = DispatchTime.now().uptimeNanoseconds
+        let result = setReport(device, [0xA0, 0x01], label: "motion enable (\(reason))")
+        if result == kIOReturnSuccess {
+            rmDebug("🌀 motion enable sent (\(reason))")
         }
     }
 
@@ -74,6 +100,27 @@ final class MotionCapture {
         t.resume()
     }
 
+    /// A successful FEATURE write does not guarantee that the BLE transport
+    /// has begun delivering reports. Fresh TCC grants and remote wake-up can
+    /// leave it temporarily not ready, so recover without requiring an app
+    /// restart whenever no motion packet arrives after an enable attempt.
+    private func startRecoveryMonitor() {
+        guard recoveryTimer == nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: queue)
+        t.schedule(deadline: .now() + 2, repeating: 2.0)
+        t.setEventHandler { [weak self] in
+            guard let self, !self.attached.isEmpty else { return }
+            let now = DispatchTime.now().uptimeNanoseconds
+            let reference = max(self.lastMotionReportNanos, self.lastEnableAttemptNanos)
+            guard reference == 0 || now - reference >= 2_000_000_000 else { return }
+            for device in self.attached {
+                self.enableMotion(device, reason: "no motion reports")
+            }
+        }
+        recoveryTimer = t
+        t.resume()
+    }
+
     fileprivate func handleReport(_ report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
         // Layout: byte 0 = report ID (0x01), payload bytes 1-24.
         // Gyro X/Y/Z = signed LE int16 at payload 18-23 → buffer offsets 19-24.
@@ -82,6 +129,9 @@ final class MotionCapture {
         // the main queue. Main-thread scheduling latency must not change the
         // angular distance represented by this sample.
         let timestamp = mach_absolute_time()
+        queue.async { [weak self] in
+            self?.lastMotionReportNanos = DispatchTime.now().uptimeNanoseconds
+        }
         let x = Int16(bitPattern: UInt16(report[19]) | UInt16(report[20]) << 8)
         let y = Int16(bitPattern: UInt16(report[21]) | UInt16(report[22]) << 8)
         let z = Int16(bitPattern: UInt16(report[23]) | UInt16(report[24]) << 8)

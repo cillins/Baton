@@ -6,8 +6,7 @@
 //  editor lives in `ProfileEditSheet`. Each profile row exposes:
 //   - active badge when this is the live profile (CSS .prof-active: 12/500
 //     accent-active, plain text — no background pill)
-//   - row actions 编辑 (查看 for `default`), 重置 (hidden for default),
-//     删除 (disabled + tooltip when builtin)
+//   - row actions 编辑, 重置, 删除 (disabled + tooltip when builtin)
 //
 //  Footer: 恢复默认映射 (ghost) + 新建配置… (accent primary) right-aligned
 //  (CSS .map-foot: margin-top 16, justify-content flex-end, gap 8). Note
@@ -119,8 +118,8 @@ private struct ProfileRow: View {
 
     var body: some View {
         // CSS .prof-row: display flex, align-items center, gap 10,
-        // padding 11 2. React ButtonsPane.jsx has no active badge and no
-        // tap-to-select - the profile name is plain text.
+        // padding 11 2. The profile name is plain text; editing and reset
+        // remain explicit row actions.
         HStack(alignment: .center, spacing: 10) {
             Text(profile.name)
                 .font(BatonFont.text(size: 13).weight(.semibold))
@@ -132,10 +131,8 @@ private struct ProfileRow: View {
 
             // CSS .prof-row-actions: gap 2.
             HStack(spacing: 2) {
-                IconActionButton(title: profile.id == "default" ? "查看" : "编辑", action: onEdit)
-                if profile.id != "default" {
-                    IconActionButton(title: "重置", action: onReset)
-                }
+                IconActionButton(title: "编辑", action: onEdit)
+                IconActionButton(title: "重置", action: onReset)
                 IconActionButton(
                     title: "删除",
                     tone: .danger,

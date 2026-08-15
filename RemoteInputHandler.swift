@@ -99,6 +99,10 @@ class RemoteInputHandler {
     
     /// Called on any button activity; use to trigger trackpad re-scan after remote wake.
     var onButtonActivity: (() -> Void)?
+    var onRemoteMicrophoneHold: ((Bool) -> Void)?
+    /// Fires on the main thread only after an HID interface has been opened
+    /// and scheduled. Feature-report clients must not race the delayed open.
+    var onHIDDeviceReady: ((IOHIDDevice) -> Void)?
     
     // Ignore at most one handshake press, and only shortly after connection.
     // A real first press minutes later must never be swallowed.
@@ -118,6 +122,11 @@ class RemoteInputHandler {
     /// Captured at press time so release can fire the correct keyUp even if the user
     /// rebinds the button mid-hold. Cleared on device removal to avoid stuck modifiers.
     private var heldKeys: [String: (keyCode: Int, flags: CGEventFlags)] = [:]
+    private enum RemoteMicrophoneShortcutHold {
+        case keyboard(keyCode: Int, flags: CGEventFlags)
+        case system(keyCode: Int32)
+    }
+    private var remoteMicrophoneShortcutHeld: RemoteMicrophoneShortcutHold?
 
     /// Last observed pressed/released state per button. The Siri Remote mirrors each logical
     /// button across multiple HID interfaces (6 seized here), so every physical press/release
@@ -190,10 +199,24 @@ class RemoteInputHandler {
     private func openAndRegister(_ device: IOHIDDevice, session: UInt64) {
         let vendor = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
         let product = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
-        var openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+        // A1962 voice activation is performed by macOS's HID-over-GATT stack.
+        // Seizing all six logical interfaces prevents that system handshake.
+        // We can still observe its values unseized, while the existing media
+        // event tap and volume guard suppress the system-facing button effects.
+        let shouldSeize = product != 0x026D
+        var openResult = IOHIDDeviceOpen(
+            device,
+            shouldSeize
+                ? IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
+                : IOOptionBits(kIOHIDOptionsTypeNone)
+        )
         if openResult == kIOReturnSuccess {
-            rmDebug(String(format: "🔒 SEIZED HID device (vendor=0x%X product=0x%X)", vendor, product))
-        } else {
+            let mode = shouldSeize ? "SEIZED" : "OPENED UNSEIZED"
+            rmDebug(String(
+                format: "🔒 %@ HID device (vendor=0x%X product=0x%X)",
+                mode, vendor, product
+            ))
+        } else if shouldSeize {
             rmDebug(String(format: "⚠️ FAILED to seize HID device (IOReturn=0x%X) — opening unseized", openResult))
             openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
         }
@@ -217,6 +240,10 @@ class RemoteInputHandler {
                 device, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue
             )
             self.devices.append(device)
+            self.onHIDDeviceReady?(device)
+            if product == 0x026D {
+                AudioProbe.shared.interfaceDidBecomeReady(device)
+            }
             self.markConnectionHandshakeWindow()
         }
     }
@@ -800,13 +827,12 @@ class RemoteInputHandler {
             sendKey(kVK_Escape)
         case .ctrlC:
             sendKey(kVK_ANSI_C, flags: .maskControl)
-        case .spaceKey, .rightCmd, .rightOpt:
+        case .spaceKey, .rightCmd, .rightOpt, .remoteMicrophone:
             break // handled by handleHoldAction
         case .mediaPlayPause, .mediaNext, .mediaPrev, .mediaMute:
             menuBarManager?.executeAction(action.rawValue, button: button)
         case .systemVolumeUp, .systemVolumeDown:
-            // AVRCP absolute volume is the source of truth for these actions.
-            break
+            menuBarManager?.executeAction(action.rawValue, button: button)
         case .presentation:
             sendKey(kVK_ANSI_P, flags: [.maskCommand, .maskAlternate])
         case .trackpadClick:
@@ -822,7 +848,8 @@ class RemoteInputHandler {
                 menuBarManager?.executeCustomKey(
                     keyCode: keyCode,
                     modifiers: modifiers,
-                    systemKeyCode: combo["systemKeyCode"] as? Int
+                    systemKeyCode: combo["systemKeyCode"] as? Int,
+                    sourceButton: button
                 )
             }
         }
@@ -830,6 +857,13 @@ class RemoteInputHandler {
 
     /// Press/release a virtual key mirroring the HID press duration (push-to-talk).
     private func handleHoldAction(_ action: ButtonAction, button: String, pressed: Bool) {
+        if action == .remoteMicrophone {
+            if pressed, !AudioProbe.shared.ownsA1962Activation {
+                enableRemoteMicrophoneStream()
+            }
+            onRemoteMicrophoneHold?(pressed)
+            return
+        }
         let spec: (keyCode: Int, flags: CGEventFlags)
         switch action {
         case .spaceKey: spec = (kVK_Space,        [])
@@ -849,6 +883,98 @@ class RemoteInputHandler {
             guard let held = heldKeys.removeValue(forKey: button) else { return }
             postKey(keyCode: held.keyCode, flags: [], keyDown: false)
         }
+    }
+
+    private func enableRemoteMicrophoneStream() {
+        // Legacy fallback for remotes not owned by AudioProbe. A1962 normally
+        // performs this compact handshake once, after every HID callback is
+        // live, through AudioProbe.interfaceDidBecomeReady(_:).
+        let microphoneUsages: [(page: Int, usage: Int)] = [
+            (0x0C, 0x04),
+            (0x0D, 0x01),
+        ]
+        let enableTargets = microphoneUsages.compactMap { target in
+            devices.first { device in
+                let page = IOHIDDeviceGetProperty(
+                    device, kIOHIDPrimaryUsagePageKey as CFString
+                ) as? Int
+                let usage = IOHIDDeviceGetProperty(
+                    device, kIOHIDPrimaryUsageKey as CFString
+                ) as? Int
+                return page == target.page && usage == target.usage
+            }
+        }
+        guard enableTargets.count == microphoneUsages.count else {
+            rmDebug("🎙 microphone HID control interfaces not found")
+            return
+        }
+        let firstResult = sendRemoteMicrophoneEnable(
+            to: enableTargets[0], probeIndex: 0
+        )
+        // IOHIDDeviceSetReport is synchronous: when the 0x001D call returns,
+        // its ATT Write Response has already arrived. Apple's successful trace
+        // sends 0x0020 one millisecond later, so keep both writes in this same
+        // call chain instead of waiting for PacketLogger/helper IPC.
+        if firstResult == kIOReturnSuccess, buttonState["siri"] == true {
+            _ = sendRemoteMicrophoneEnable(to: enableTargets[1], probeIndex: 1)
+            // Match the AudioProbe broadcast that produced the known-good HCI
+            // capture. The four sibling interfaces accept the compact report
+            // and complete the composite-device activation sequence.
+            for device in devices where
+                device != enableTargets[0] && device != enableTargets[1] {
+                _ = sendRemoteMicrophoneEnable(to: device, probeIndex: 2)
+            }
+        }
+    }
+
+    /// The helper invokes this only after the ATT Write Response for 0x001D.
+    func completeRemoteMicrophoneHandshake() {
+        guard buttonState["siri"] == true,
+              let device = devices.first(where: { device in
+                  let page = IOHIDDeviceGetProperty(
+                      device, kIOHIDPrimaryUsagePageKey as CFString
+                  ) as? Int
+                  let usage = IOHIDDeviceGetProperty(
+                      device, kIOHIDPrimaryUsageKey as CFString
+                  ) as? Int
+                  return page == 0x0D && usage == 0x01
+              }) else { return }
+        _ = sendRemoteMicrophoneEnable(to: device, probeIndex: 1)
+    }
+
+    @discardableResult
+    private func sendRemoteMicrophoneEnable(
+        to device: IOHIDDevice, probeIndex: Int
+    ) -> IOReturn {
+            let page = IOHIDDeviceGetProperty(
+                device, kIOHIDPrimaryUsagePageKey as CFString
+            ) as? Int ?? 0
+            let usage = IOHIDDeviceGetProperty(
+                device, kIOHIDPrimaryUsageKey as CFString
+            ) as? Int ?? 0
+            let result: IOReturn
+            // Existing implementations send the input-enable value as one
+            // compact report. The old 208-byte fallback was only a descriptor
+            // size experiment and generated unnecessary Prepare Write traffic.
+            let report: [UInt8] = [0xAF]
+            result = report.withUnsafeBufferPointer { buffer in
+                IOHIDDeviceSetReport(
+                    device, kIOHIDReportTypeFeature, 255,
+                    buffer.baseAddress!, buffer.count
+                )
+            }
+            rmDebug(String(
+                format: "🎙 mic probe[%d] page=0x%X usage=0x%X result=0x%X",
+                probeIndex, page, usage, result
+            ))
+            return result
+    }
+
+    /// Called only after the privileged HCI capture process reports ready, so
+    /// the first Opus packets are not lost while PacketLogger is starting.
+    func beginRemoteMicrophoneStream() {
+        guard buttonState["siri"] == true else { return }
+        enableRemoteMicrophoneStream()
     }
 
     private func handleCustomKeyHold(combo: [String: Any], button: String, pressed: Bool) {
@@ -872,11 +998,58 @@ class RemoteInputHandler {
 
     /// Called on device removal to avoid stuck modifiers if the remote disconnects mid-hold.
     private func releaseAllHeldKeys() {
+        onRemoteMicrophoneHold?(false)
+        setRemoteMicrophoneShortcutHeld(false)
         for (_, held) in heldKeys {
             releaseHeldKey(held)
         }
         heldKeys.removeAll()
         buttonState.removeAll()
+    }
+
+    /// Holds the optional companion shortcut only while a remote-microphone
+    /// voice session is active. The key spec is captured on key-down so a
+    /// settings change mid-press cannot leave the previous key stuck.
+    func setRemoteMicrophoneShortcutHeld(_ held: Bool) {
+        if !held {
+            guard let active = remoteMicrophoneShortcutHeld else { return }
+            remoteMicrophoneShortcutHeld = nil
+            switch active {
+            case .keyboard(let keyCode, let flags):
+                releaseHeldKey((keyCode, flags))
+            case .system(let keyCode):
+                menuBarManager?.mediaController?.setSystemKey(
+                    nxKeyCode: keyCode, keyDown: false
+                )
+            }
+            return
+        }
+        guard remoteMicrophoneShortcutHeld == nil,
+              let combo = menuBarManager?.remoteMicrophoneHoldKeyCombo() else { return }
+        if let systemKeyCode = combo["systemKeyCode"] as? Int {
+            let keyCode = Int32(systemKeyCode)
+            menuBarManager?.mediaController?.setSystemKey(
+                nxKeyCode: keyCode, keyDown: true
+            )
+            remoteMicrophoneShortcutHeld = .system(keyCode: keyCode)
+            let label = combo["label"] as? String ?? "system key \(systemKeyCode)"
+            rmDebug("🎙 companion shortcut key-down: \(label)")
+            return
+        }
+        guard let keyCode = combo["keyCode"] as? Int,
+              let modifiers = combo["modifiers"] as? [String] else { return }
+        let isFn = keyCode == kVK_Function || modifiers.contains("fn")
+        let flags: CGEventFlags = isFn
+            ? .maskSecondaryFn
+            : MenuBarManager.flags(fromModifierNames: modifiers)
+        if isFn {
+            postFnKey(down: true)
+        } else {
+            postKey(keyCode: keyCode, flags: flags, keyDown: true)
+        }
+        remoteMicrophoneShortcutHeld = .keyboard(keyCode: keyCode, flags: flags)
+        let label = combo["label"] as? String ?? "key \(keyCode)"
+        rmDebug("🎙 companion shortcut key-down: \(label)")
     }
 
     private func releaseHeldKey(_ held: (keyCode: Int, flags: CGEventFlags)) {

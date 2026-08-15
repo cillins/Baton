@@ -7,15 +7,15 @@
 //  custom-text field OR key recorder when the user picks a Custom action.
 //
 //  Matches CSS .map-row / .map-key / .map-gesture / .map-sel / .map-custom
-//  from styles.css:626-660. The custom editor slots in below the row, not
-//  to the right — that matches `ProfileEditModal.jsx:181`.
+//  from the native design system. The custom editor slots in below the row,
+//  not to the right.
 //
 
 import AppKit
 import SwiftUI
 
-/// The mapping editor uses the same `1.2fr 0.8fr 1fr` grid as the former
-/// web UI. `layoutPriority` is not a fractional-width API: when it was used
+/// The mapping editor uses a `1.2fr 0.8fr 1fr`-style grid.
+/// `layoutPriority` is not a fractional-width API: when it was used
 /// here, the first column won the entire proposal and collapsed the gesture
 /// and action columns. This small layout view computes the three widths from
 /// the offered row width while remaining compatible with macOS 12.
@@ -278,7 +278,7 @@ struct MapRow: View {
 
 /// A reusable Picker(.menu) styled to match CSS .map-sel: 13px text, padding
 /// 6 10, radius 6, border-soft 1px stroke, surface bg. Hover/active states
-/// mirror React's `.map-sel:hover` / `.map-sel:focus`.
+/// provide clear hover and focus feedback.
 private struct MenuPicker: View {
     @Binding var selection: String
     var options: [ButtonOptionVM]

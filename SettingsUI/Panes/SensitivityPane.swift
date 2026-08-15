@@ -8,8 +8,6 @@
 //   2. 陀螺仪 — only when gen1 remote is connected, gain (0.5–6 step 0.1) +
 //      smoothing (0–100 %). Sliders commit once.
 //
-//  Mirrors React SensitivityPane.jsx 1:1.
-//
 
 import SwiftUI
 

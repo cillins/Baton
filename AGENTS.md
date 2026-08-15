@@ -4,7 +4,7 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 ## Project
 
-**Baton** — a macOS menu-bar app (`LSUIElement`, no Dock icon) that maps Apple Siri Remote models including A1513 and A1962 onto mouse, keyboard, media, presentation, and Claude Code workflows. Fork of [Remotastic](https://github.com/lauschue/Remotastic). Core Swift sources live flat at the repo root; the production settings UI is native SwiftUI under `SettingsUI/`. The React app in `web/` is reference-only. No Xcode project, no test suite.
+**Baton** — a macOS menu-bar app (`LSUIElement`, no Dock icon) that maps Apple Siri Remote models including A1513 and A1962 onto mouse, keyboard, media, presentation, and Claude Code workflows. Fork of [Remotastic](https://github.com/lauschue/Remotastic). Core Swift sources live flat at the repo root; the settings UI is native SwiftUI under `SettingsUI/`. There is no Xcode project.
 
 ## Build & Run
 
@@ -22,9 +22,6 @@ open Baton.app          # proper app (needed for TCC permissions)
 # Canonical local kill + build + package + launch verification
 ./script/build_and_run.sh --verify
 
-# Optional: preview the legacy React design reference
-cd web && npm run dev
-
 # Standalone BLE research tool
 ./build_probe.sh        # → BleProbe.app (GATT enumeration)
 ```
@@ -32,7 +29,7 @@ cd web && npm run dev
 **Critical build notes:**
 - `build.sh` is the **only** real build. It links the private `MultitouchSupport` framework via `-Xlinker -F -Xlinker /System/Library/PrivateFrameworks` and bridges C via `SiriRemote-Bridging-Header.h` → `MultitouchSupport.h`. `Package.swift` exists for IDE indexing but **cannot link private frameworks** — never use `swift build`.
 - When adding a new `.swift` file, add it to **both** the `SWIFT_FILES` array in `build.sh` and the `sources` list in `Package.swift`.
-- `SettingsUI/` is the production UI. `web/` is kept only as a visual reference and is not bundled.
+- `SettingsUI/` is the production UI and the only settings implementation.
 - `RemoteTouchSurface.swift` prevents Magic Trackpads from being adopted as the remote touch surface. Verify with `Tests/run-tests.sh` and `Tests/run-touch-surface-probe.sh`.
 - `create_app_bundle.sh` accepts optional `BATON_SIGN_IDENTITY`; when unset it preserves the ad-hoc signing behavior.
 - Requires: macOS 12+, Xcode CLI Tools (`xcode-select --install`), arm64 or x86_64 (auto-detected).
@@ -130,7 +127,6 @@ IOHID doesn't expose battery for BT HID devices. A parallel CoreBluetooth GATT c
 - `SettingsViewModel` mirrors canonical state from `MenuBarManager` and exposes mutations for mappings, profiles, app presets, sensitivity, appearance, login item, close behavior, and menu-bar battery display.
 - `SettingsWindowController` forwards connection, generation, and battery updates to the view model.
 - The window activation policy flips to `.regular` while open. Closing either restores `.accessory` mode or terminates Baton according to `keepRunningWhenClosed`.
-- `web/` is a legacy React visual reference only. It is not loaded by WKWebView and is not bundled into `Baton.app`.
 
 ### Key invariants / gotchas
 
@@ -156,4 +152,6 @@ IOHID doesn't expose battery for BT HID devices. A parallel CoreBluetooth GATT c
 - `AudioProbe.swift`, `BleAudioProbe.swift`: audio stream probing (activated via `--audio-probe` flag).
 - `MotionProbe.swift`: motion sensor research (`--motion-probe` flag).
 - `MotionCapture.swift`: production gyro capture (gen 1 only, always active when gen1 connected).
-- `mic-spike/`: separate Opus microphone experiment (own build, unrelated to main app).
+- `mic-spike/`: standalone A1962 microphone verifier. It extracts 101-byte ATT notifications on handle `0x0023`, decodes their Opus payloads to 16 kHz mono WAV, and supports saved `.pklg` files or live PacketLogger TSV on stdin.
+- Production A1962 microphone capture uses `RemoteMicrophoneController` + the `com.baton.miccapture` privileged XPC helper. The helper runs only Apple-signed PacketLogger and forwards only validated Opus payloads, never raw HCI traffic. `RemoteMicrophoneAudio` decodes Opus and targets the output side of `Baton Remote Microphone`; the HAL driver loops that timeline to its input side.
+- `VirtualMicrophoneDriver/` is derived from Apple's permissively licensed Audio Server Driver sample. BlackHole is architecture reference only; never copy its GPL source into Baton.

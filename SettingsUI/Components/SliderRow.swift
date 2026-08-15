@@ -2,7 +2,7 @@
 //  SliderRow.swift
 //  Baton
 //
-//  Matches React's `<SliderRow>` exactly: a `.kv.gyro-slider` row with the
+//  A `.kv.gyro-slider`-style row with the
 //  label on the left and a slider + monospaced value chip on the right
 //  (CSS `.kv { display: flex; justify-content: space-between }` +
 //  `.gyro-slider-ctl { display: inline-flex; gap: 10 }` +

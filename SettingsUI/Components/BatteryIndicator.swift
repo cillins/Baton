@@ -2,8 +2,7 @@
 //  BatteryIndicator.swift
 //  Baton
 //
-//  SVG-style battery shell + fill bar + tip + percentage label. Matches the
-//  React DetailHeader's `.batt-ind` markup 1:1:
+//  SVG-style battery shell + fill bar + tip + percentage label:
 //
 //    <svg viewBox="0 0 26 14" width="22" height="12">
 //      <rect class="batt-shell" x="1" y="1" width="22" height="12" rx="2.2" />

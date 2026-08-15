@@ -102,6 +102,17 @@ final class VolumeRevertGuard {
         }
     }
 
+    /// Run a deliberate mapped system-volume action after the remote's native
+    /// AVRCP change has been suppressed. This is needed for opposite-direction
+    /// mappings (for example, physical Volume Up recorded as system Volume Down).
+    func performAfterGuard(_ action: @escaping () -> Void) {
+        let delay = max(0, guardUntil.timeIntervalSinceNow) + 0.02
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.guardUntil = .distantPast
+            action()
+        }
+    }
+
     private func ensureListener() {
         guard !listenerInstalled, let id = SystemVolume.defaultOutputDeviceID() else { return }
         listenerDeviceID = id

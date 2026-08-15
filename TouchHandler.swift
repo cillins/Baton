@@ -7,8 +7,67 @@
 
 import Foundation
 import CoreGraphics
+import CoreVideo
 import AppKit
 import Darwin
+
+/// Coalesces raw multitouch callbacks to the active display's refresh cadence.
+/// The callback can arrive off-main and faster than AppKit can safely process;
+/// a data-add source avoids building an unbounded queue of stale cursor frames.
+private final class TouchDisplayDriver {
+    var onFrame: (() -> Void)?
+
+    private var displayLink: CVDisplayLink?
+    private lazy var source: DispatchSourceUserDataAdd = {
+        let source = DispatchSource.makeUserDataAddSource(queue: .main)
+        source.setEventHandler { [weak self] in self?.onFrame?() }
+        source.resume()
+        return source
+    }()
+
+    func start() {
+        guard displayLink == nil else { return }
+        _ = source
+        var link: CVDisplayLink?
+        guard CVDisplayLinkCreateWithActiveCGDisplays(&link) == kCVReturnSuccess,
+              let link,
+              CVDisplayLinkSetOutputCallback(link, touchDisplayLinkCallback,
+                                             Unmanaged.passUnretained(self).toOpaque()) == kCVReturnSuccess,
+              CVDisplayLinkStart(link) == kCVReturnSuccess else {
+            rmDebug("📱 Unable to start touch display link")
+            return
+        }
+        displayLink = link
+    }
+
+    func stop() {
+        guard let link = displayLink else { return }
+        CVDisplayLinkStop(link)
+        displayLink = nil
+    }
+
+    fileprivate func signalFrame() {
+        source.add(data: 1)
+    }
+
+    deinit {
+        stop()
+        source.cancel()
+    }
+}
+
+private func touchDisplayLinkCallback(
+    _ displayLink: CVDisplayLink,
+    _ now: UnsafePointer<CVTimeStamp>,
+    _ outputTime: UnsafePointer<CVTimeStamp>,
+    _ flagsIn: CVOptionFlags,
+    _ flagsOut: UnsafeMutablePointer<CVOptionFlags>,
+    _ context: UnsafeMutableRawPointer?
+) -> CVReturn {
+    guard let context else { return kCVReturnError }
+    Unmanaged<TouchDisplayDriver>.fromOpaque(context).takeUnretainedValue().signalFrame()
+    return kCVReturnSuccess
+}
 
 private func touchCallback(device: MTDevice?,
                            touches: UnsafeMutablePointer<MTTouch>?,
@@ -41,6 +100,9 @@ class TouchHandler {
     }
     
     private let cursorController: CursorController
+    private let displayDriver = TouchDisplayDriver()
+    private let cursorDeltaLock = NSLock()
+    private var pendingCursorDelta = CGPoint.zero
     private var device: MTDevice?
     private var reconnectTimer: Timer?
     private var fastReconnectTimer: Timer?
@@ -73,11 +135,12 @@ class TouchHandler {
     /// Fired on touch-up when a single-finger flick is detected. Dispatched on main.
     var onSwipe: ((SwipeDirection) -> Void)?
     private let reconnectInterval: TimeInterval = 2.0
-    private let idleTimeout: TimeInterval = 90.0
     private let touchStarvationThreshold: TimeInterval = 15.0
+    private var starvationConfirmations = 0
 
     init(cursorController: CursorController) {
         self.cursorController = cursorController
+        displayDriver.onFrame = { [weak self] in self?.renderCursorFrame() }
     }
     
     deinit {
@@ -220,6 +283,7 @@ class TouchHandler {
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         MTRegisterContactFrameCallbackWithRefcon(dev, touchCallback, refcon)
         MTDeviceStart(dev, 0)
+        starvationConfirmations = 0
         // Reset so we don't immediately re-enter starvation and restart every 2s when no touches yet.
         lastTouchTime = mach_absolute_time()
         var deviceID: UInt64 = 0
@@ -232,6 +296,8 @@ class TouchHandler {
         MTUnregisterContactFrameCallback(dev, touchCallback)
         MTDeviceStop(dev)
         device = nil
+        displayDriver.stop()
+        discardPendingCursorMovement()
         
         rmDebug("📱 Trackpad device disconnected")
         lastTouchPosition = nil
@@ -252,20 +318,29 @@ class TouchHandler {
     private func checkAndReconnect() {
         let timeSinceLastTouch = lastTouchTime == 0 ? 0 : Self.machDeltaToSeconds(from: lastTouchTime)
 
-        guard let cfArray = MTDeviceCreateList()?.takeRetainedValue() else { return }
-        let deviceCount = CFArrayGetCount(cfArray)
+        guard let dev = device else {
+            findAndStartDevice()
+            return
+        }
 
-        // Restart if we have a device ref but the driver stopped (e.g. after remote sleep).
-        if let dev = device, !MTDeviceIsRunning(dev) {
+        // A healthy device needs no enumeration. MTDeviceCreateList performs
+        // synchronous driver IPC and previously stalled the main thread every 2s.
+        guard MTDeviceIsRunning(dev) else {
+            starvationConfirmations = 0
             findAndStartDevice()
             return
         }
-        // Restart if we have a device but no touch events for a while (remote slept; no "remote wake" API).
-        if device != nil && timeSinceLastTouch > touchStarvationThreshold {
-            findAndStartDevice()
-            return
+
+        // A sleeping remote can remain "running" while silently delivering no
+        // frames. Require two idle checks before restarting so a frame arriving
+        // near the threshold cancels the restart instead of being interrupted.
+        if lastTouchCount == 0 && timeSinceLastTouch > touchStarvationThreshold {
+            starvationConfirmations += 1
+        } else {
+            starvationConfirmations = 0
         }
-        if device == nil || (timeSinceLastTouch > idleTimeout && deviceCount > 1) {
+        if starvationConfirmations >= 2 {
+            starvationConfirmations = 0
             findAndStartDevice()
         }
     }
@@ -320,6 +395,7 @@ class TouchHandler {
         // Keep consuming frames so release resumes from the current contact
         // position, but let gyro be the only cursor source during the hold.
         if cursorController.isClickActive {
+            discardPendingCursorMovement()
             lastTouchPosition = currentPos
             lastTouchCount = activeTouchCount
             return
@@ -345,18 +421,8 @@ class TouchHandler {
             if trackpadMode == "gesture" {
                 lastTouchPosition = currentPos
             } else {
-                let clamped = moveCursor(deltaX: deltaX, deltaY: deltaY)
-                // Only advance touch tracking if cursor wasn't clamped in that direction
-                if let lastPos = lastTouchPosition {
-                    let adjustedDeltaX = clamped.clampedX ? 0 : deltaX
-                    let adjustedDeltaY = clamped.clampedY ? 0 : deltaY
-                    lastTouchPosition = CGPoint(
-                        x: lastPos.x + adjustedDeltaX,
-                        y: lastPos.y + adjustedDeltaY
-                    )
-                } else {
-                    lastTouchPosition = currentPos
-                }
+                enqueueCursorMovement(deltaX: deltaX, deltaY: deltaY)
+                lastTouchPosition = currentPos
             }
         } else if activeTouchCount == 2 && lastTouchCount == 2 {
             // Two fingers: always scroll regardless of mode
@@ -371,6 +437,7 @@ class TouchHandler {
     
     private func handleTouchEnd() {
         guard lastTouchPosition != nil else { return }
+        displayDriver.stop()
         
         // Don't trigger tap if physical click button is active
         if cursorController.isClickActive {
@@ -416,21 +483,38 @@ class TouchHandler {
         }
     }
     
-    private func moveCursor(deltaX: CGFloat, deltaY: CGFloat) -> (clampedX: Bool, clampedY: Bool) {
+    private func enqueueCursorMovement(deltaX: CGFloat, deltaY: CGFloat) {
+        // Start lazily on the first real cursor delta. This also resumes touch
+        // movement when a physical Select/gyro hold ends without lifting the finger.
+        displayDriver.start()
         let scaledX = deltaX * cursorScale
         let scaledY = -deltaY * cursorScale
+        let tuned = cursorController.pointerTunedDelta(deltaX: scaledX, deltaY: scaledY)
 
-        var clamped = (clampedX: false, clampedY: false)
+        cursorDeltaLock.lock()
+        pendingCursorDelta.x += tuned.x
+        pendingCursorDelta.y += tuned.y
+        cursorDeltaLock.unlock()
+    }
 
-        if Thread.isMainThread {
-            clamped = cursorController.moveCursor(deltaX: scaledX, deltaY: scaledY)
-        } else {
-            DispatchQueue.main.sync {
-                clamped = cursorController.moveCursor(deltaX: scaledX, deltaY: scaledY)
-            }
-        }
+    private func renderCursorFrame() {
+        cursorDeltaLock.lock()
+        let delta = pendingCursorDelta
+        pendingCursorDelta = .zero
+        cursorDeltaLock.unlock()
 
-        return clamped
+        guard !cursorController.isClickActive, delta.x != 0 || delta.y != 0 else { return }
+        _ = cursorController.moveCursor(
+            deltaX: delta.x,
+            deltaY: delta.y,
+            applyPointerTuning: false
+        )
+    }
+
+    private func discardPendingCursorMovement() {
+        cursorDeltaLock.lock()
+        pendingCursorDelta = .zero
+        cursorDeltaLock.unlock()
     }
     
     private func performScroll(deltaX: CGFloat, deltaY: CGFloat) {

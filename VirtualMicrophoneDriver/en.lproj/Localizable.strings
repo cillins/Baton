@@ -1,0 +1,7 @@
+DeviceName = "Baton Remote Microphone";
+InputStreamName = "Siri Remote Microphone";
+OutputStreamName = "Baton Audio Feeder";
+ManufacturerName = "Baton";
+MasterElementName = "Master";
+LeftElementName = "Left";
+RightElementName = "Right";

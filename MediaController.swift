@@ -18,7 +18,28 @@ class MediaController {
     }
 
     func sendSystemKey(nxKeyCode: Int32) {
-        postSystemDefinedKey(nxKeyCode: nxKeyCode)
+        setSystemKey(nxKeyCode: nxKeyCode, keyDown: true)
+        usleep(50000)
+        setSystemKey(nxKeyCode: nxKeyCode, keyDown: false)
+    }
+
+    /// Posts one half of an NX_SYSDEFINED key transition. Push-to-talk
+    /// companion mappings use this to mirror the remote's hold duration.
+    func setSystemKey(nxKeyCode: Int32, keyDown: Bool) {
+        let state = keyDown ? 0xa : 0xb
+        let modifierRaw = keyDown ? 0xa00 : 0xb00
+        let event = NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(modifierRaw)),
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            subtype: 8,
+            data1: Int((nxKeyCode << 16) | (Int32(state) << 8)),
+            data2: -1
+        )
+        event?.cgEvent?.post(tap: .cgSessionEventTap)
     }
 
     private func nxKeyCode(for keyType: MediaKeyInterceptor.MediaKeyType) -> Int32? {
@@ -32,33 +53,4 @@ class MediaController {
         }
     }
 
-    private func postSystemDefinedKey(nxKeyCode: Int32) {
-        let ts = ProcessInfo.processInfo.systemUptime
-        let keyDown = NSEvent.otherEvent(
-            with: .systemDefined,
-            location: .zero,
-            modifierFlags: NSEvent.ModifierFlags(rawValue: 0xa00),
-            timestamp: ts,
-            windowNumber: 0,
-            context: nil,
-            subtype: 8,
-            data1: Int((nxKeyCode << 16) | (0xa << 8)),
-            data2: -1
-        )
-        let keyUp = NSEvent.otherEvent(
-            with: .systemDefined,
-            location: .zero,
-            modifierFlags: NSEvent.ModifierFlags(rawValue: 0xb00),
-            timestamp: ts,
-            windowNumber: 0,
-            context: nil,
-            subtype: 8,
-            data1: Int((nxKeyCode << 16) | (0xb << 8)),
-            data2: -1
-        )
-        let sessionTap: CGEventTapLocation = .cgSessionEventTap
-        keyDown?.cgEvent?.post(tap: sessionTap)
-        usleep(50000)
-        keyUp?.cgEvent?.post(tap: sessionTap)
-    }
 }

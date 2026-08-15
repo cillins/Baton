@@ -21,6 +21,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: SettingsWindowController?
     private var permissionGuide: PermissionGuideWindowController?
     private var bleBatteryMonitor: BleBatteryMonitor?
+    private var applicationHotKeys: ApplicationHotKeyManager?
+    private let remoteMicrophone = RemoteMicrophoneController.shared
+    private var remoteMicrophoneButtonPressed = false
+    private var remoteMicrophoneSessionGeneration: UInt64 = 0
     private var batteryMonitorStarted = false
     private var protectedServicesStarted = false
     private let motionCapture = MotionCapture()
@@ -29,6 +33,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("🚀 Baton starting...")
 
         AppPreferenceKey.registerDefaults()
+        remoteMicrophone.migrateRegisteredHelperIfNeeded()
 
         // Run as menu bar app (no dock icon)
         NSApp.setActivationPolicy(.accessory)
@@ -48,6 +53,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Wire the "打开主窗口…" menu item to show the native SwiftUI settings window.
         // Connection-state changes are pushed live through SettingsWindowController.
         settingsWindow = SettingsWindowController(menuBarManager: menuBarManager, remoteDetector: remoteDetector)
+        applicationHotKeys = ApplicationHotKeyManager { [weak self] action in
+            switch action {
+            case .toggleMainWindow:
+                self?.settingsWindow?.toggleVisibility()
+            case .cycleAppearance:
+                self?.settingsWindow?.cycleAppearance()
+            }
+        }
         menuBarManager.onOpenSettings = { [weak self] in
             self?.settingsWindow?.show()
         }
@@ -83,6 +96,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         motionCapture.onGyro = { [weak remoteInputHandler] x, y, z, timestamp in
             remoteInputHandler?.handleGyro(x: x, y: y, z: z, timestamp: timestamp)
         }
+        remoteInputHandler?.onHIDDeviceReady = { [weak self] device in
+            let productID = IOHIDDeviceGetProperty(
+                device, kIOHIDProductIDKey as CFString
+            ) as? Int
+            guard productID.flatMap(Generation.fromProductID) == .gen1 else { return }
+            self?.motionCapture.attach(device)
+        }
         
         // Prepare the touch handler. It starts only after the permission guide
         // is complete, so launching Baton never triggers competing prompts.
@@ -99,11 +119,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         remoteInputHandler?.onButtonActivity = { [weak self] in
             self?.touchHandler?.tryReconnectTrackpad()
         }
+        remoteInputHandler?.onRemoteMicrophoneHold = { [weak self] pressed in
+            self?.handleRemoteMicrophoneHold(pressed)
+        }
+        // Opening A1962 HID interfaces unseized lets macOS activate the native
+        // Bluetooth microphone transport, but the Siri key transition may no
+        // longer reach IOHID. Mirror its ATT 0x0023 state notification so the
+        // virtual microphone feeder still follows push-to-talk. Keep the
+        // user's active mapping authoritative, just like the HID path.
+        remoteMicrophone.onCapturedButtonStateChange = { [weak self] pressed in
+            guard let self else { return }
+            guard self.menuBarManager.getMapping(for: "siri") == .remoteMicrophone else {
+                if !pressed { self.handleRemoteMicrophoneHold(false) }
+                return
+            }
+            self.handleRemoteMicrophoneHold(pressed)
+        }
+        // HID feature writes are synchronous, so the second activation write
+        // is issued directly by RemoteInputHandler without helper IPC latency.
+        remoteMicrophone.onActivationWriteComplete = nil
+        // The helper migration settles asynchronously; attach PacketLogger
+        // once it is registered, before any Siri button interaction.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.remoteMicrophone.prewarmCapture()
+        }
         
         // Prepare remote detection. Starting is deferred until permissions
         // have been granted through the onboarding flow.
         remoteDetector = RemoteDetector { [weak self] device in
             DispatchQueue.main.async {
+                if device == nil {
+                    // Raw-report probe state is keyed by IOHIDDevice identity.
+                    // Discard it before RemoteInputHandler closes the old
+                    // interfaces, otherwise a reconnect broadcasts to stale
+                    // and current devices together.
+                    AudioProbe.shared.detachAll()
+                }
                 self?.remoteInputHandler?.setRemoteDevice(device)
                 let name = self?.remoteDetector?.currentDeviceName
                 self?.menuBarManager.currentDeviceName = name
@@ -118,16 +169,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                         self?.bleBatteryMonitor?.refresh()
                     }
-                    // Gen 1 only: start gyro capture (gen 2/3 have no motion hardware).
-                    if self?.remoteDetector?.currentGeneration == .gen1, let d = device {
-                        self?.motionCapture.attach(d)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                        self?.bleBatteryMonitor?.refresh()
                     }
                 } else {
+                    self?.bleBatteryMonitor?.remoteDidDisconnect()
                     self?.motionCapture.detach()
                 }
-                if let device = device, CommandLine.arguments.contains("--audio-probe") {
-                    AudioProbe.shared.attach(device)
-                    BleAudioProbe.shared.start()
+                if let device = device {
+                    let productID = IOHIDDeviceGetProperty(
+                        device,
+                        kIOHIDProductIDKey as CFString
+                    ) as? Int
+
+                    // Keep the raw-report path active for A1962 in production.
+                    // A1962 remains non-seized so macOS can perform the native
+                    // microphone handshake. AudioProbe observes report 0xFA;
+                    // manual activation/polling is research-only.
+                    if productID == 0x026D || CommandLine.arguments.contains("--audio-probe") {
+                        AudioProbe.shared.attach(device)
+                    }
+                    if productID == 0x026D || CommandLine.arguments.contains("--audio-probe") {
+                        BleAudioProbe.shared.start()
+                    }
                 }
                 if CommandLine.arguments.contains("--motion-probe") {
                     if let device = device { MotionProbe.shared.attach(device) }
@@ -173,21 +237,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menuBarManager.applyAppActivation(bundleId: front)
         }
 
-        // Decide per active mapping whether AVRCP volume should pass through.
-        // Navigation/custom actions arm the revert guard; explicit system-volume
-        // actions (plus the legacy unassigned coding/media mappings) do not.
+        // Let native AVRCP through only when the active mapping requests the
+        // same system-volume direction. This includes volume keys captured by
+        // the custom-key recorder; posting a second synthetic key would double-step.
         VolumeRevertGuard.shared.shouldArmForRemoteButton = { [weak self] button in
             guard let self else { return true }
             let action = self.menuBarManager.getMapping(for: button)
-            if action == .systemVolumeUp || action == .systemVolumeDown {
+            if self.menuBarManager.usesPhysicalVolumePassThrough(forButton: button) {
+                rmDebug("🔊 route \(button): native AVRCP passthrough")
                 return false
             }
             // Preserve the existing pass-through behavior of the coding/media
             // profiles while their volume buttons remain unassigned.
             if action == .none,
                ["coding", "media"].contains(self.menuBarManager.currentProfileId) {
+                rmDebug("🔊 route \(button): legacy native AVRCP passthrough")
                 return false
             }
+            rmDebug("🔊 route \(button): suppress native AVRCP")
             return true
         }
         VolumeRevertGuard.shared.prewarm()
@@ -200,6 +267,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         beginPermissionFlow()
+    }
+
+    /// Coordinates both HID and captured ATT copies of the Siri-button state.
+    /// The microphone feeder is ready before the companion shortcut goes down;
+    /// on release the shortcut goes up first and the feeder gets a short tail.
+    private func handleRemoteMicrophoneHold(_ pressed: Bool) {
+        guard pressed != remoteMicrophoneButtonPressed else { return }
+        remoteMicrophoneButtonPressed = pressed
+        remoteMicrophoneSessionGeneration &+= 1
+        let generation = remoteMicrophoneSessionGeneration
+
+        if pressed {
+            remoteMicrophone.start { [weak self] ready in
+                guard let self,
+                      ready,
+                      self.remoteMicrophoneButtonPressed,
+                      self.remoteMicrophoneSessionGeneration == generation else { return }
+                self.remoteInputHandler?.setRemoteMicrophoneShortcutHeld(true)
+            }
+            return
+        }
+
+        remoteInputHandler?.setRemoteMicrophoneShortcutHeld(false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self,
+                  !self.remoteMicrophoneButtonPressed,
+                  self.remoteMicrophoneSessionGeneration == generation else { return }
+            self.remoteMicrophone.endVoiceSession()
+        }
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -216,6 +312,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func cleanup() {
+        applicationHotKeys?.stop()
+        applicationHotKeys = nil
+        remoteInputHandler?.setRemoteMicrophoneShortcutHeld(false)
+        // PacketLogger is intentionally kept warm between Siri presses. Tear
+        // it down explicitly when Baton exits so a replacement app process
+        // cannot leave two privileged capture pipelines running in parallel.
+        remoteMicrophone.stop()
+        bleBatteryMonitor?.stop()
         touchHandler?.stop()
         remoteDetector?.stopDetection()
         mediaKeyInterceptor?.stop()

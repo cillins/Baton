@@ -29,7 +29,7 @@ struct SegmentedTabs<Item: Hashable>: View {
                         .padding(.horizontal, 16)
                         // CSS text inherits body line-height: 1.45. SwiftUI's
                         // intrinsic 13pt text is several points shorter, so a
-                        // fixed 30pt pill restores the WebUI control height.
+                        // fixed 30pt pill maintains the intended control height.
                         .frame(height: 30)
                         .background(
                             Group {

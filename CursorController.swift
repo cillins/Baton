@@ -33,6 +33,16 @@ class CursorController {
     }
     
     // MARK: - Cursor Movement
+
+    /// Applies the existing trackpad pointer curve without reading or posting
+    /// any global cursor state. TouchHandler uses this before coalescing input
+    /// frames so display-paced delivery does not change the established feel.
+    func pointerTunedDelta(deltaX: CGFloat, deltaY: CGFloat) -> CGPoint {
+        CGPoint(
+            x: deltaX * sensitivity * (abs(deltaX) > 5 ? acceleration : 1.0),
+            y: deltaY * sensitivity * (abs(deltaY) > 5 ? acceleration : 1.0)
+        )
+    }
     
     // Returns true if cursor is at an edge of the current screen and would be clamped
     @discardableResult
@@ -41,12 +51,11 @@ class CursorController {
         // Trackpad input retains the original pointer tuning. Gyro input has
         // already been velocity-curved and integrated, so applying this second
         // acceleration layer would make its response discontinuous.
-        let scaledDeltaX = applyPointerTuning
-            ? deltaX * sensitivity * (abs(deltaX) > 5 ? acceleration : 1.0)
-            : deltaX
-        let scaledDeltaY = applyPointerTuning
-            ? deltaY * sensitivity * (abs(deltaY) > 5 ? acceleration : 1.0)
-            : deltaY
+        let tunedDelta = applyPointerTuning
+            ? pointerTunedDelta(deltaX: deltaX, deltaY: deltaY)
+            : CGPoint(x: deltaX, y: deltaY)
+        let scaledDeltaX = tunedDelta.x
+        let scaledDeltaY = tunedDelta.y
 
             // Get current cursor position - use CGEvent which gives us global Quartz coordinates
         // This works correctly across all displays

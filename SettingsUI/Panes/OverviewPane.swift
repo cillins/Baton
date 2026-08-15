@@ -6,8 +6,7 @@
 //   1. 连接 — status (ok/off colored) + 蓝牙 4.0/5.0
 //   2. 设备信息 — model + last connected relative time
 //
-//  Mirrors React `OverviewPane.jsx` 1:1. Each section is preceded by a
-//  `.group-label` (12/600, fg-2, margin 18/4/6).
+//  Each section is preceded by a `.group-label`.
 //
 
 import SwiftUI

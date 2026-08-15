@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"./build.sh 2>&1 | grep -E \\\"✓|✗|error:\\\" | head -5 && ./create_app_bundle.sh >/dev/null 2>&1 && pkill -x Baton 2>/dev/null; sleep 1; open Baton.app\",\"description\":\"Build app from repo root...",
-  "error": "Exit code 1\nThe file /Users/cillin/Code/Baton/web/Baton.app does not exist.",
-  "timestamp": "2026-07-18T17:11:51.833Z",
-  "retry_count": 2
-}

@@ -2,9 +2,7 @@
 //  Theme.swift
 //  Baton
 //
-//  Design tokens ported from web/src/styles.css. Each token maps a CSS variable
-//  to a SwiftUI Color that resolves per appearance. Light/dark come from the
-//  CSS :root and :root[data-appearance=dark] / auto prefers-color-scheme blocks.
+//  Native design tokens. Each SwiftUI Color resolves for light and dark mode.
 //
 
 import AppKit
@@ -50,8 +48,7 @@ extension Color {
     static let batonBg           = dynamic(light: "ffffff", dark: "1d1d1f")
     static let batonSurface      = dynamic(light: "f5f5f7", dark: "000000")
     static let batonSurfaceWarm  = dynamic(light: "fbfbfd", dark: "151516")
-    // The legacy CSS deliberately lifts the sidebar above the pure-black
-    // detail surface in dark mode (`.sidebar { background: var(--bg) }`).
+    // Lift the sidebar above the pure-black detail surface in dark mode.
     // In light mode it continues to use the regular grouped surface.
     static let batonSidebar      = dynamic(light: "f5f5f7", dark: "1d1d1f")
 

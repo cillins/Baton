@@ -32,10 +32,14 @@ final class AudioProbe {
 
     private let logPath = "/tmp/hid_audio_probe.log"
     private var attached: [IOHIDDevice] = []
+    private var readyDeviceKeys: Set<UInt> = []
     private var buffers: [UnsafeMutablePointer<UInt8>] = []
     private var callbackContexts: [AudioReportContext] = []
     private var audioDeviceIndex: Int?
     private var siriHeld = false
+    private(set) var ownsA1962Activation = false
+    private var prearmScheduled = false
+    private var inputStreamingPrearmed = false
 
     /// 0xAF enable target, parsed from --audio-enable=<id>. nil = don't send.
     let enableReportID: CFIndex? = {
@@ -69,6 +73,9 @@ final class AudioProbe {
         let v = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
         let p = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
         let transport = IOHIDDeviceGetProperty(device, kIOHIDTransportKey as CFString) as? String ?? "?"
+        if p == 0x026D {
+            ownsA1962Activation = true
+        }
         log(String(format: "🎧 probe attach: vendor=0x%X product=0x%X transport=%@", v, p, transport))
 
         let handlesSiriState = dumpReportElements(device)
@@ -88,34 +95,142 @@ final class AudioProbe {
         if handlesSiriState {
             audioDeviceIndex = deviceIndex
         }
-        // Do not enable during enumeration.  The remote exposes six HID interfaces,
-        // and writes while they are still arriving can reset the Siri state stream.
-        // A real Siri-down transition broadcasts one enable command after all of the
-        // interfaces have attached.
+    }
+
+    /// IOHID discovery and IOHID open/scheduling are separate phases.  The
+    /// remote must not receive its input-enable byte until every logical HID
+    /// interface is open and its input callback is live; otherwise early
+    /// notifications can be lost and the voice stream remains disabled.
+    func interfaceDidBecomeReady(_ device: IOHIDDevice) {
+        guard attached.contains(where: { $0 == device }) else { return }
+        let key = UInt(bitPattern: Unmanaged.passUnretained(device).toOpaque())
+        readyDeviceKeys.insert(key)
+        log("🎧 HID interface ready \(readyDeviceKeys.count)/\(attached.count)")
+        // Production A1962 voice capture leaves activation to macOS. This
+        // matches SiriRemoteVoiceControl, which only observes PacketLogger and
+        // never seizes or writes the remote's HID interfaces. Keep the manual
+        // handshake available solely for the explicit research launch flag.
+        if enableReportID != nil {
+            scheduleInputStreamingPrearmIfReady()
+        }
+    }
+
+    func detachAll() {
+        stopPolling()
+        for (device, buffer) in zip(attached, buffers) {
+            IOHIDDeviceRegisterInputReportCallback(device, buffer, 512, nil, nil)
+        }
+        for buffer in buffers {
+            buffer.deallocate()
+        }
+        attached.removeAll()
+        readyDeviceKeys.removeAll()
+        buffers.removeAll()
+        callbackContexts.removeAll()
+        audioDeviceIndex = nil
+        siriHeld = false
+        ownsA1962Activation = false
+        prearmScheduled = false
+        inputStreamingPrearmed = false
+        log("🎧 probe detached all HID interfaces")
+    }
+
+    /// The remote treats 0xAF as an input-stream enable, not merely as a
+    /// per-press microphone command. Open-source Linux drivers write it once
+    /// after discovering/subscribing all HID reports, before the first Siri
+    /// press. Wait for all six macOS logical interfaces so an early write
+    /// cannot disturb enumeration, then reproduce that connection pre-arm.
+    private func scheduleInputStreamingPrearmIfReady() {
+        guard ownsA1962Activation,
+              attached.count >= 6,
+              readyDeviceKeys.count >= attached.count,
+              !prearmScheduled,
+              !inputStreamingPrearmed else { return }
+        prearmScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { return }
+            self.prearmScheduled = false
+            guard self.attached.count >= 6,
+                  self.readyDeviceKeys.count >= self.attached.count,
+                  !self.inputStreamingPrearmed else { return }
+            self.log("📤 pre-arming A1962 input streaming after all HID callbacks are live")
+            self.sendCompactEnableToAllInterfaces()
+            self.inputStreamingPrearmed = true
+        }
+    }
+
+    private func sendCompactEnableToAllInterfaces() {
+        for (index, device) in orderedInterfaces().enumerated() {
+            let page = IOHIDDeviceGetProperty(
+                device, kIOHIDPrimaryUsagePageKey as CFString
+            ) as? Int ?? 0
+            let usage = IOHIDDeviceGetProperty(
+                device, kIOHIDPrimaryUsageKey as CFString
+            ) as? Int ?? 0
+            let payload: [UInt8] = [0xAF]
+            let result = payload.withUnsafeBufferPointer { ptr in
+                IOHIDDeviceSetReport(
+                    device, kIOHIDReportTypeFeature, 255,
+                    ptr.baseAddress!, ptr.count
+                )
+            }
+            log(String(
+                format: "📤 pre-arm dev=%d page=0x%X usage=0x%X result=0x%X",
+                index, page, usage, result
+            ))
+        }
     }
 
     private func sendEnable(_ device: IOHIDDevice) {
-        var payload: [UInt8] = [0xAF]
-        var r = payload.withUnsafeBufferPointer { ptr in
+        let payload: [UInt8] = [0xAF]
+        let r = payload.withUnsafeBufferPointer { ptr in
             IOHIDDeviceSetReport(device, kIOHIDReportTypeFeature, 255, ptr.baseAddress!, 1)
         }
         log(String(format: "📤 enable: FEATURE id=255 [0xAF] → IOReturn=0x%X", r))
-        if r != kIOReturnSuccess {
-            // Some stacks require the full declared report size (208 bytes).
-            var full = [UInt8](repeating: 0, count: 208)
-            full[0] = 0xAF
-            r = full.withUnsafeBufferPointer { ptr in
-                IOHIDDeviceSetReport(device, kIOHIDReportTypeFeature, 255, ptr.baseAddress!, 208)
+    }
+
+    private func orderedInterfaces() -> [IOHIDDevice] {
+        // IOHID enumeration order changes between connections. The only
+        // captured successful A1962 session used this primary-usage order:
+        // C:109 (ATT 001D) immediately followed by D:1 (ATT 0020), then the
+        // four siblings. Writing another 001D interface before D:1 resets the
+        // voice handshake, so never rely on the callback arrival order here.
+        let preferredOrder: [(page: Int, usage: Int)] = [
+            (0x0C, 0x0109),
+            (0x0D, 0x0001),
+            (0xFF00, 0x000B),
+            (0xFF00, 0x0010),
+            (0x0C, 0x0004),
+            (0x0C, 0x0001),
+        ]
+        return attached.sorted { lhs, rhs in
+            func rank(_ device: IOHIDDevice) -> Int {
+                let page = IOHIDDeviceGetProperty(
+                    device, kIOHIDPrimaryUsagePageKey as CFString
+                ) as? Int ?? -1
+                let usage = IOHIDDeviceGetProperty(
+                    device, kIOHIDPrimaryUsageKey as CFString
+                ) as? Int ?? -1
+                return preferredOrder.firstIndex {
+                    $0.page == page && $0.usage == usage
+                } ?? preferredOrder.count
             }
-            log(String(format: "📤 enable: FEATURE id=255 208-byte [0xAF…] → IOReturn=0x%X", r))
+            return rank(lhs) < rank(rhs)
         }
-        payload.withUnsafeBufferPointer { _ in } // keep payload alive semantics explicit
     }
 
     private func sendEnableToAllInterfaces() {
-        log("📤 broadcasting one enable command to \(attached.count) interface(s)")
-        for (index, device) in attached.enumerated() {
-            log("📤 enable target dev=\(index)")
+        let ordered = orderedInterfaces()
+
+        log("📤 broadcasting one enable command to \(ordered.count) interface(s)")
+        for (index, device) in ordered.enumerated() {
+            let page = IOHIDDeviceGetProperty(
+                device, kIOHIDPrimaryUsagePageKey as CFString
+            ) as? Int ?? 0
+            let usage = IOHIDDeviceGetProperty(
+                device, kIOHIDPrimaryUsageKey as CFString
+            ) as? Int ?? 0
+            log(String(format: "📤 enable target dev=%d page=0x%X usage=0x%X", index, page, usage))
             sendEnable(device)
         }
     }
@@ -178,11 +293,17 @@ final class AudioProbe {
         guard handlesSiriState, reportID == 250 else { return }
         if data == Data([0xfa, 0x10]), !siriHeld {
             siriHeld = true
-            log("📤 Siri down dev=\(deviceIndex) — enabling once")
-            if enableReportID != nil {
+            log("📤 Siri down dev=\(deviceIndex) prearmed=\(inputStreamingPrearmed)")
+            // Manual activation is a research-only fallback. In production,
+            // macOS owns the non-seized A1962 interfaces and performs the
+            // button-time voice handshake itself.
+            if !inputStreamingPrearmed && enableReportID != nil {
                 sendEnableToAllInterfaces()
+                inputStreamingPrearmed = true
             }
-            startPolling()
+            if CommandLine.arguments.contains("--audio-probe") {
+                startPolling()
+            }
         } else if data == Data([0xfa, 0x00]), siriHeld {
             siriHeld = false
             log("📤 Siri up dev=\(deviceIndex)")

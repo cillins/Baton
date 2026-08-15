@@ -10,6 +10,7 @@ echo "Building Baton..."
 SWIFT_FILES=(
     "main.swift"
     "SiriRemoteApp.swift"
+    "ApplicationHotKeyManager.swift"
     "MenuBarManager.swift"
     "RemoteDetector.swift"
     "RemoteInputHandler.swift"
@@ -21,6 +22,9 @@ SWIFT_FILES=(
     "SystemVolume.swift"
     "AudioProbe.swift"
     "BleAudioProbe.swift"
+    "RemoteMicrophoneXPC.swift"
+    "RemoteMicrophoneController.swift"
+    "RemoteMicrophoneAudio.swift"
     "BleBatteryMonitor.swift"
     "SettingsWindowController.swift"
     "MotionProbe.swift"
@@ -89,6 +93,7 @@ swiftc \
     -framework IOKit \
     -framework CoreGraphics \
     -framework AudioToolbox \
+    -framework AVFoundation \
     -framework Carbon \
     -framework AppKit \
     -framework ServiceManagement \

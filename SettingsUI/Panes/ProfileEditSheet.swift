@@ -8,8 +8,8 @@
 //  rather than as a SwiftUI `.sheet` so the visual matches (a `.sheet` would
 //  attach as a system sheet with chrome we don't want).
 //
-//  Esc + click-outside close. The default profile (`id == "default"`) gets
-//  a readOnly banner: rows are non-editable, the name field is disabled.
+//  Esc + click-outside close. Built-in profile names remain fixed, while all
+//  profiles — including the default profile — allow mapping edits.
 //
 //  MapRow wiring:
 //   - For "Custom Text": inline TextField → onSetCustomText(target, key, trimmed).
@@ -27,7 +27,6 @@ struct ProfileEditSheet: View {
     @State private var name: String
     @FocusState private var nameFocused: Bool
 
-    private var isDefault: Bool { mappings.profileId == "default" }
     private var gen: String { vm.device.generation == "gen1" ? "1 代" : "2/3 代" }
     private var devName: String { vm.device.name.isEmpty ? "Siri Remote" : vm.device.name }
 
@@ -69,7 +68,7 @@ struct ProfileEditSheet: View {
             }
         }
         .onAppear {
-            // Mirror React: autofocus + select the name on non-builtin.
+            // Autofocus and select the name for editable profiles.
             if !mappings.builtin {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
                     nameFocused = true
@@ -86,9 +85,6 @@ struct ProfileEditSheet: View {
             Divider().overlay(Color.batonBorderSoft)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if isDefault {
-                        defaultBanner
-                    }
                     buttonsGroup
                     trackpadGroup
                 }
@@ -147,21 +143,9 @@ struct ProfileEditSheet: View {
         .padding(.vertical, 14)
     }
 
-    private var defaultBanner: some View {
-        // CSS .map-note inside modal-body: 12/muted, no extra margin when
-        // first child of the column.
-        Text("默认配置为系统基准，仅供查看，不可修改。")
-            .font(BatonFont.text(size: 12))
-            .foregroundStyle(Color.batonMuted)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.bottom, 8)
-    }
-
     private var buttonsGroup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // CSS .modal-body .group-label:first-child { margin-top: 0 }.
-            // When the default banner is absent, this label is the first child.
-            ModalGroupLabel("按键自定义 · \(devName)（\(gen)）", first: !isDefault)
+            ModalGroupLabel("按键自定义 · \(devName)（\(gen)）", first: true)
             // CSS .modal-body .group { padding: 12 14 }.
             GroupCard(padding: 12) {
                 VStack(spacing: 0) {
@@ -203,7 +187,7 @@ struct ProfileEditSheet: View {
                             ButtonOptionVM(raw: "mouse", label: "鼠标（光标控制）"),
                             ButtonOptionVM(raw: "gesture", label: "手势（滑动快捷键）"),
                         ],
-                        readOnly: isDefault
+                        readOnly: false
                     )
 
                     if mappings.trackpadMode == "gesture" {
@@ -255,7 +239,7 @@ struct ProfileEditSheet: View {
             .lineLimit(1)
     }
 
-    // MARK: - Reactive rows (local @State for editing, commit on change)
+    // MARK: - Editable rows (local @State, commit on change)
 
     private func mapRowBinding(_ row: ButtonRowVM) -> some View {
         // Local @State so editing the picker/key-recorder doesn't round-trip
@@ -274,11 +258,11 @@ struct ProfileEditSheet: View {
                 }
             ),
             options: row.options,
-            readOnly: isDefault,
+            readOnly: false,
             customText: Binding(
                 get: { row.customText },
                 set: { newVal in
-                    vm.setCustomText(target: "button", key: row.key, text: newVal.trimmingCharacters(in: .whitespaces))
+                    vm.setCustomText(profileId: mappings.profileId, target: "button", key: row.key, text: newVal.trimmingCharacters(in: .whitespaces))
                 }
             ),
             customKey: Binding(
@@ -286,16 +270,16 @@ struct ProfileEditSheet: View {
                 set: { _ in /* committed via onSetCustomKey */ }
             ),
             onSetCustomText: { newVal in
-                vm.setCustomText(target: "button", key: row.key, text: newVal.trimmingCharacters(in: .whitespaces))
+                vm.setCustomText(profileId: mappings.profileId, target: "button", key: row.key, text: newVal.trimmingCharacters(in: .whitespaces))
             },
             onSetCustomKey: { combo in
-                vm.setCustomKey(target: "button", key: row.key, combo: combo)
+                vm.setCustomKey(profileId: mappings.profileId, target: "button", key: row.key, combo: combo)
             },
             onClearCustomKey: {
-                vm.setCustomText(target: "button", key: row.key, text: "")
+                vm.setCustomText(profileId: mappings.profileId, target: "button", key: row.key, text: "")
                 // Easiest path: clearing a custom key means writing an empty
                 // combo object — MenuBarManager interprets that as cleared.
-                vm.setCustomKey(target: "button", key: row.key,
+                vm.setCustomKey(profileId: mappings.profileId, target: "button", key: row.key,
                                 combo: KeyCombo(keyCode: 0, modifiers: [], label: ""))
             }
         )
@@ -315,11 +299,11 @@ struct ProfileEditSheet: View {
                 }
             ),
             options: row.options,
-            readOnly: isDefault,
+            readOnly: false,
             customText: Binding(
                 get: { row.customText },
                 set: { newVal in
-                    vm.setCustomText(target: "swipe", key: row.key, text: newVal.trimmingCharacters(in: .whitespaces))
+                    vm.setCustomText(profileId: mappings.profileId, target: "swipe", key: row.key, text: newVal.trimmingCharacters(in: .whitespaces))
                 }
             ),
             customKey: Binding(
@@ -327,14 +311,14 @@ struct ProfileEditSheet: View {
                 set: { _ in }
             ),
             onSetCustomText: { newVal in
-                vm.setCustomText(target: "swipe", key: row.key, text: newVal.trimmingCharacters(in: .whitespaces))
+                vm.setCustomText(profileId: mappings.profileId, target: "swipe", key: row.key, text: newVal.trimmingCharacters(in: .whitespaces))
             },
             onSetCustomKey: { combo in
-                vm.setCustomKey(target: "swipe", key: row.key, combo: combo)
+                vm.setCustomKey(profileId: mappings.profileId, target: "swipe", key: row.key, combo: combo)
             },
             onClearCustomKey: {
-                vm.setCustomText(target: "swipe", key: row.key, text: "")
-                vm.setCustomKey(target: "swipe", key: row.key,
+                vm.setCustomText(profileId: mappings.profileId, target: "swipe", key: row.key, text: "")
+                vm.setCustomKey(profileId: mappings.profileId, target: "swipe", key: row.key,
                                 combo: KeyCombo(keyCode: 0, modifiers: [], label: ""))
             }
         )
@@ -360,8 +344,10 @@ struct ProfileEditSheet: View {
                 options: mappings.scrollSpeedOptions.map {
                     SelectFieldOption(id: $0.raw, title: $0.label)
                 },
-                disabled: isDefault,
-                onSelect: vm.setScrollSpeed
+                disabled: false,
+                onSelect: { raw in
+                    vm.setScrollSpeed(profileId: mappings.profileId, raw: raw)
+                }
             )
             .frame(height: 28)
             .frame(maxWidth: .infinity, alignment: .leading)

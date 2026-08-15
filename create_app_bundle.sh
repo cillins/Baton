@@ -20,9 +20,44 @@ echo "Creating app bundle: $APP_BUNDLE"
 # Create bundle structure
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 mkdir -p "${APP_BUNDLE}/Contents/Resources"
+mkdir -p "${APP_BUNDLE}/Contents/Frameworks"
+mkdir -p "${APP_BUNDLE}/Contents/Library/HelperTools"
+mkdir -p "${APP_BUNDLE}/Contents/Library/LaunchDaemons"
 
 # Copy executable
 cp "$BINARY_NAME" "${APP_BUNDLE}/Contents/MacOS/$APP_NAME"
+
+# Bundle the virtual-microphone components. They remain dormant until the
+# user explicitly approves the helper and installs the HAL driver.
+./build_mic_helper.sh
+./VirtualMicrophoneDriver/build_driver.sh
+cp "dist/microphone/BatonMicCaptureHelper" \
+    "${APP_BUNDLE}/Contents/Library/HelperTools/BatonMicCaptureHelper"
+cp "MicCaptureHelper/com.baton.miccapture.plist" \
+    "${APP_BUNDLE}/Contents/Library/LaunchDaemons/com.baton.miccapture.plist"
+rm -rf "${APP_BUNDLE}/Contents/Resources/BatonRemoteMicrophone.driver"
+ditto "VirtualMicrophoneDriver/build/BatonRemoteMicrophone.driver" \
+    "${APP_BUNDLE}/Contents/Resources/BatonRemoteMicrophone.driver"
+cp "VirtualMicrophoneDriver/LICENSE-APPLE-SAMPLE.txt" \
+    "${APP_BUNDLE}/Contents/Resources/VirtualMicrophoneDriver-License.txt"
+cp "VirtualMicrophoneDriver/Install Baton Remote Microphone.command" \
+    "${APP_BUNDLE}/Contents/Resources/Install Baton Remote Microphone.command"
+cp "VirtualMicrophoneDriver/Uninstall Baton Remote Microphone.command" \
+    "${APP_BUNDLE}/Contents/Resources/Uninstall Baton Remote Microphone.command"
+chmod +x \
+    "${APP_BUNDLE}/Contents/Resources/Install Baton Remote Microphone.command" \
+    "${APP_BUNDLE}/Contents/Resources/Uninstall Baton Remote Microphone.command"
+
+OPUS_LIBRARY="/opt/homebrew/opt/opus/lib/libopus.0.dylib"
+if [ ! -f "$OPUS_LIBRARY" ]; then
+    OPUS_LIBRARY="/usr/local/opt/opus/lib/libopus.0.dylib"
+fi
+if [ -f "$OPUS_LIBRARY" ]; then
+    rm -f "${APP_BUNDLE}/Contents/Frameworks/libopus.0.dylib"
+    cp "$OPUS_LIBRARY" "${APP_BUNDLE}/Contents/Frameworks/libopus.0.dylib"
+else
+    echo "Warning: libopus.0.dylib not found; remote microphone decoding will be unavailable."
+fi
 
 # Copy icon if it exists
 if [ -f "Baton.icns" ]; then
@@ -36,14 +71,10 @@ fi
 # Copy menu bar icon resources
 if [ -d "Resources" ]; then
     cp Resources/MenuBarIcon*.png "${APP_BUNDLE}/Contents/Resources/" 2>/dev/null || true
+    cp Resources/GitHubMark.svg "${APP_BUNDLE}/Contents/Resources/" 2>/dev/null || true
+    cp Resources/Opus-License.txt "${APP_BUNDLE}/Contents/Resources/" 2>/dev/null || true
     echo "Menu bar icons added to app bundle"
 fi
-
-# Settings UI is now native SwiftUI (SettingsUI/*). The legacy React build at
-# web/dist is kept on disk as a reference but is no longer bundled — the
-# SwiftUI view replaces the WKWebView entirely. Wipe any stale web/ from a
-# previous build so the bundle stays trim.
-rm -rf "${APP_BUNDLE}/Contents/Resources/web"
 
 # Create proper Info.plist with all required keys
 echo "Creating Info.plist..."
@@ -97,6 +128,15 @@ chmod +x "${APP_BUNDLE}/Contents/MacOS/$APP_NAME"
 SIGN_IDENTITY="${BATON_SIGN_IDENTITY:--}"
 if [ -f "Baton.entitlements" ]; then
     echo "Signing with hardened runtime + entitlements (identity: ${SIGN_IDENTITY})..."
+    if [ -f "${APP_BUNDLE}/Contents/Frameworks/libopus.0.dylib" ]; then
+        codesign --force --options=runtime --timestamp=none \
+            --sign "$SIGN_IDENTITY" "${APP_BUNDLE}/Contents/Frameworks/libopus.0.dylib"
+    fi
+    codesign --force --options=runtime --timestamp=none \
+        --identifier com.baton.miccapture \
+        --sign "$SIGN_IDENTITY" "${APP_BUNDLE}/Contents/Library/HelperTools/BatonMicCaptureHelper"
+    codesign --force --timestamp=none --sign "$SIGN_IDENTITY" \
+        "${APP_BUNDLE}/Contents/Resources/BatonRemoteMicrophone.driver"
     codesign --force --options=runtime \
         --entitlements "Baton.entitlements" \
         --sign "$SIGN_IDENTITY" \

@@ -52,9 +52,8 @@ struct PillButton: View {
                 .font(BatonFont.text(size: 13).weight(.medium))
                 .foregroundStyle(variant == .primary ? Color.batonAccentOn : Color.batonAccent)
                 .padding(.horizontal, 16)
-                // WebUI `.abtn` is ~31pt tall after its inherited 1.45 line
-                // height and 6pt vertical padding. Do not cap it at 28pt:
-                // that made every native action button look compressed.
+                // Keep enough vertical padding so native action buttons do
+                // not look compressed.
                 .frame(height: 32)
                 .background(
                     RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)

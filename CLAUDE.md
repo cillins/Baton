@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**Baton** — a native macOS menu-bar app that maps Apple Siri Remote models including A1513 and A1962 onto mouse, keyboard, media, presentation, and Claude Code workflows. It supports configurable buttons and gestures, gyro drag-mode, profiles, and per-app auto-switching. Fork of [Remotastic](https://github.com/lauschue/Remotastic). Production UI is SwiftUI; `web/` is reference-only.
+**Baton** — a native macOS menu-bar app that maps Apple Siri Remote models including A1513 and A1962 onto mouse, keyboard, media, presentation, and Claude Code workflows. It supports configurable buttons and gestures, gyro drag-mode, profiles, and per-app auto-switching. Fork of [Remotastic](https://github.com/lauschue/Remotastic). The UI is implemented entirely in SwiftUI.
 
 Repo is **flat at the root** for core Swift sources; the production settings UI lives in `SettingsUI/`. No Xcode project, no test suite. The exhaustive per-file reference lives in `AGENTS.md` — this file is the **quick-start** that future Claude instances need at session start.
 
@@ -12,7 +12,7 @@ Repo is **flat at the root** for core Swift sources; the production settings UI 
 
 ```bash
 ./build.sh                          # single swiftc → ./Baton binary (canonical build)
-./create_app_bundle.sh              # wraps binary + icons + ad-hoc codesign (no web/ bundled)
+./create_app_bundle.sh              # wraps binary + resources + ad-hoc codesign
 open Baton.app                      # run as a proper app (needed for TCC permissions)
 ./Baton                             # or run the raw binary (menu bar only)
 ./script/build_and_run.sh --verify  # canonical kill + build + bundle + launch verification
@@ -20,7 +20,7 @@ open Baton.app                      # run as a proper app (needed for TCC permis
 
 - `build.sh` is the **only real build**. It links the private `MultitouchSupport` framework via `-Xlinker -F -Xlinker /System/Library/PrivateFrameworks` and bridges C via `SiriRemote-Bridging-Header.h`. `Package.swift` exists for IDE indexing only and **cannot link private frameworks** — never use `swift build`.
 - **Adding a new `.swift` file?** Append it to **both** `SWIFT_FILES` in `build.sh` **and** the `sources` list in `Package.swift`. Files under `SettingsUI/**` must also be listed in both lists.
-- `web/` is **reference-only**. The settings UI is now a native SwiftUI tree under `SettingsUI/`; `web/dist/index.html` is no longer bundled and the React frontend has no production role. The directory is kept in source for visual comparison and design provenance.
+- `SettingsUI/` contains the complete native SwiftUI settings interface.
 - `RemoteTouchSurface.swift` positively identifies the remote's small multitouch surface so a Magic Trackpad is never adopted. Run `Tests/run-tests.sh` for the pure classifier and `Tests/run-touch-surface-probe.sh` to inspect live device geometry.
 - Set `BATON_SIGN_IDENTITY` when running `create_app_bundle.sh` to use a stable local signing identity; unset keeps the ad-hoc default.
 - Requires macOS 12+, Xcode Command Line Tools (`xcode-select --install`), arm64 or x86_64 (auto-detected in `build.sh`).
@@ -68,16 +68,16 @@ Central store + executor for every button / swipe / drag assignment. Persistence
 
 ## Settings UI — `SettingsUI/` + `SettingsWindowController`
 
-Native SwiftUI tree hosted inside an `NSHostingView` inside the existing `WindowContainerView` (fixed 1020×684 window, `fullSizeContentView` with custom traffic lights). Pixel-perfect reproduction of the prior React UI — same colors, spacing, animations, interaction details. The settings window flips activation policy to `.regular` while open (gets a Dock icon), restores `.accessory` on close.
+Native SwiftUI tree hosted inside an `NSHostingView` inside `WindowContainerView` (fixed 1020×684 window, `fullSizeContentView` with custom traffic lights). The settings window flips activation policy to `.regular` while open (gets a Dock icon), then restores `.accessory` on close.
 
 **Layout:**
 - `SettingsUI/Theme.swift` — design tokens (Color, Spacing, Radius, Motion, BatonFont, shadows).
 - `SettingsUI/RemoteArt.swift` — minimal SVG parser + Canvas-based renderer for the gen1/gen2 remote artwork.
-- `SettingsUI/SettingsViewModel.swift` — `ObservableObject` mirroring `MenuBarManager` state (`buttons`, `swipes`, `profiles`, `appPresets`, `scrollSpeed`, `gyro`, `trackpadSensitivity`, `device`). Intent methods match the old WebBridge 1:1 (so this is essentially the bridge contract in Swift form).
+- `SettingsUI/SettingsViewModel.swift` — `ObservableObject` mirroring `MenuBarManager` state (`buttons`, `swipes`, `profiles`, `appPresets`, `scrollSpeed`, `gyro`, `trackpadSensitivity`, `device`).
 - `SettingsUI/SettingsRootView.swift` — top-level composition: titlebar + sidebar + detail body + toast + profile-edit modal overlay.
 - `SettingsUI/Components/` — `GroupCard`, `KeyValueRow`, `BatteryIndicator`, `MacSwitch`, `SegmentedTabs`, `SliderRow`, `KeyRecorderButton` (NSEvent local monitor — no DOM-to-CG table needed since `event.keyCode` is the CGKeyCode), `MapRow`.
 - `SettingsUI/Panes/` — `SidebarView`, `DetailHeaderView`, `OverviewPane`, `ButtonsPane` (profile list + footer actions), `ProfileEditSheet` (modal — `ZStack` overlay, NOT `.sheet`, because CSS backdrop is transparent), `AppsPane`, `SensitivityPane`, `SettingsPane`.
-- `SettingsUI/Support/RelativeTime.swift` — "X 分钟前" formatter mirroring React `App.jsx:relativeTime`.
+- `SettingsUI/Support/RelativeTime.swift` — "X 分钟前" formatter.
 
 Custom controls (NOT the native AppKit equivalents) — `Picker(.segmented)` and `Toggle(.switch)` can't reproduce the CSS look, so:
 - `SegmentedTabs` paints an inset `--surface` track with per-button `--shadow-card` pills.
@@ -85,8 +85,6 @@ Custom controls (NOT the native AppKit equivalents) — `Picker(.segmented)` and
 - `KeyRecorderButton` uses `NSEvent.addLocalMonitorForEvents(matching: .keyDown)` and skips the DOM-to-CGKeyCode mapping entirely; same glyph normalization (`↩`→`⏎`, `⎋`→`esc`) as `MenuBarManager.customKeyGlyphNormalization`.
 
 State flow: intents (button tap, slider commit, profile rename, …) → VM calls `MenuBarManager` → VM `reload()` → `objectWillChange` fires for `ObservedObject` SwiftUI subscribers. `MenuBarManager.onCurrentProfileChange` calls back into the VM. App-state pushes from `AppDelegate` go via `SettingsWindowController.pushConnectionState / pushGeneration / pushBattery / pushAppearance` — each forwards to `vm.updateDevice(...)` or `vm.appearance = ...`.
-
-`web/` is kept on disk as a reference mock for visual comparison but is **no longer bundled**. To preview the old UI in a browser, `cd web && npm run dev`; bridge calls become no-ops and React falls back to `localStorage` + mock data.
 
 ## Key invariants / gotchas
 
@@ -110,6 +108,6 @@ State flow: intents (button tap, slider commit, profile rename, …) → VM call
 ## Auxiliary tools (research, not part of the main build)
 
 - `./build_probe.sh` → `BleProbe.app`: standalone CoreBluetooth GATT enumerator.
-- `AudioProbe.swift` / `BleAudioProbe.swift` — audio stream probing (gated behind `--audio-probe` launch flag). Mic capture via public macOS APIs was investigated and is **unreachable** (Apple reserves the path for its own stacks). A separate `mic-spike/` Opus decoder experiment exists for the PacketLogger HCI path — paused since macOS 26.5 broke Apple PacketLogger.
+- `AudioProbe.swift` / `BleAudioProbe.swift` — public-API research probes (gated behind `--audio-probe`). The 101-byte Opus frames remain unreachable through HID/CoreBluetooth, so production A1962 capture uses the signed `com.baton.miccapture` helper to run Apple PacketLogger at HCI level, then `RemoteMicrophoneAudio` decodes and feeds `Baton Remote Microphone`. `mic-spike/` remains the offline verifier.
 - `MotionProbe.swift` — motion sensor probing (`--motion-probe` flag). Motion **is reachable** and is now production code in `MotionCapture.swift`.
 - These are listed in `build.sh`'s `SWIFT_FILES` for ergonomic single-binary dev, but don't depend on them being there for the app to function. If asked to "clean up" `build.sh`, keep them only if the user explicitly wants them.

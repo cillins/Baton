@@ -2,8 +2,7 @@
 //  DetailHeaderView.swift
 //  Baton
 //
-//  Top of the right pane: device name + battery indicator. No "连接" button
-//  in native mode (React's DetailHeader.jsx hides it via `isNative`).
+//  Top of the right pane: device name + battery indicator.
 //
 
 import SwiftUI

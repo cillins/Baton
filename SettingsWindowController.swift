@@ -2,11 +2,8 @@
 //  SettingsWindowController.swift
 //  Baton
 //
-//  Hosts the SwiftUI settings window (was a WKWebView + WebBridge stack
-//  before the native rewrite). The hand-rolled AppKit window chrome
-//  survives - `WindowContainerView`, `TitleDragOverlay` - none of those
-//  classes depend on web content. `attachContent` takes any NSView, so we
-//  slot the SwiftUI `NSHostingView` in where the WKWebView used to go.
+//  Hosts the SwiftUI settings window. `WindowContainerView` provides the
+//  custom AppKit chrome and hosts the SwiftUI `NSHostingView`.
 //  AppKit standard window buttons are hosted in the custom 46pt titlebar.
 //  Baton is LSUIElement (no Dock icon by default); this controller flips
 //  activation policy to .regular while the window is open so the app gets
@@ -76,6 +73,27 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    func toggleVisibility() {
+        guard let window = window else { return }
+        if window.isVisible {
+            window.orderOut(nil)
+            NSApp.setActivationPolicy(.accessory)
+        } else {
+            show()
+        }
+    }
+
+    func cycleAppearance() {
+        let next: AppearanceMode
+        switch vm.appearance {
+        case .auto:  next = .light
+        case .light: next = .dark
+        case .dark:  next = .auto
+        }
+        vm.appearance = next
+        vm.showToast("外观已切换为「\(next.displayName)」")
+    }
+
     // MARK: - AppDelegate push hooks (thin forwarders; the VM owns state)
 
     /// Live connection-state updates from `RemoteDetector`. The VM caches the
@@ -127,12 +145,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 // MARK: - Window Content Container (drag overlay + custom traffic lights)
 
 /// Wraps a SwiftUI `NSHostingView` plus a Swift-side drag overlay covering
-/// the titlebar area. WKWebView's CSS-based `-webkit-app-region: drag` was
-/// unreliable with `fullSizeContentView` because the native titlebar is
-/// hidden. Same story for the SwiftUI titlebar we ship now — even though
-/// SwiftUI could provide its own drag region, performance + correctness
-/// are easier to reason about with a transparent NSView on top that calls
-/// `window?.performDrag(with:)` on mouseDown.
+/// the titlebar area. A transparent NSView calls
+/// `window?.performDrag(with:)` on mouseDown for predictable window dragging.
 ///
 /// The right inset excludes the Settings button; the left 78pt hosts
 /// `TrafficLightsView` which sits above us in z-order so traffic-light

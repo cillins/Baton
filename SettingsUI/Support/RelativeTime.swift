@@ -2,9 +2,8 @@
 //  RelativeTime.swift
 //  Baton
 //
-//  "X 天前" / "X 小时前" / "刚刚" formatter mirroring React
-//  `App.jsx:relativeTime`. Lives in support/ rather than Theme.swift since
-//  it's the only formatting helper.
+//  "X 天前" / "X 小时前" / "刚刚" formatter. Lives in support/
+//  rather than Theme.swift since it is the only formatting helper.
 //
 
 import Foundation

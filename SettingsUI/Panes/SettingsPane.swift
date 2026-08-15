@@ -4,11 +4,8 @@
 //
 //  Native general preferences, keyboard shortcut chips, and about info.
 //
-//  Mirrors React `SettingsPane.jsx` 1:1. Each kv row has the label on the
-//  left and either a MacSwitch (toggle rows) or a row of kbd chips (shortcut
-//  rows) on the right, matching CSS .kv { justify-content: space-between }.
-//  The footer of the 关于 GroupCard uses CSS .card-foot (margin-top 10,
-//  padding-top 10, border-top 1px border-soft).
+//  Each key/value row has the label on the left and its control or value on
+//  the right.
 //
 
 import SwiftUI
@@ -64,12 +61,103 @@ struct SettingsPane: View {
             GroupCard {
                 kvRow("显示 / 隐藏主窗口") { kbdChips(["⌘", "Shift", "R"]) }
                 DividerLine()
-                kvRow("添加遥控器")           { kbdChips(["⌘", "N"]) }
-                DividerLine()
                 kvRow("切换外观模式")         { kbdChips(["⌘", "Shift", "L"]) }
-                DividerLine()
-                kvRow("跳到当前选中设备的设置") { kbdChips(["⌘", ","]) }
             }
+
+            GroupLabel("遥控器麦克风")
+            GroupCard {
+                kvRow("功能说明") {
+                    Text("可选实验功能；未安装时不影响按键、触控板和陀螺仪")
+                        .font(BatonFont.text(size: 12))
+                        .foregroundStyle(Color.batonFg2)
+                }
+                DividerLine()
+                kvRow("Apple PacketLogger") {
+                    HStack(spacing: 8) {
+                        Text(vm.packetLoggerStatus)
+                            .font(BatonFont.text(size: 12))
+                            .foregroundStyle(Color.batonFg2)
+                        PillButton(
+                            title: vm.packetLoggerReady ? "在访达中显示" : "从 Apple 获取…",
+                            variant: .ghost,
+                            action: vm.managePacketLogger
+                        )
+                    }
+                }
+                DividerLine()
+                kvRow("Bluetooth Logging 配置") {
+                    HStack(spacing: 8) {
+                        Text("需单独安装；配置 3 天后自动失效")
+                            .font(BatonFont.text(size: 12))
+                            .foregroundStyle(Color.batonFg2)
+                        PillButton(
+                            title: "选择并安装…",
+                            variant: .ghost,
+                            action: vm.installBluetoothLoggingProfile
+                        )
+                    }
+                }
+                DividerLine()
+                kvRow("HCI 采集组件") {
+                    HStack(spacing: 8) {
+                        Text(vm.microphoneHelperStatus)
+                            .font(BatonFont.text(size: 12))
+                            .foregroundStyle(Color.batonFg2)
+                        PillButton(
+                            title: vm.microphoneHelperStatus == "已启用" ? "重启组件" : "启用…",
+                            variant: .ghost,
+                            disabled: !vm.packetLoggerReady,
+                            action: vm.enableMicrophoneCaptureHelper
+                        )
+                    }
+                }
+                DividerLine()
+                kvRow("虚拟输入设备") {
+                    HStack(spacing: 8) {
+                        Text(vm.virtualMicrophoneInstalled ? "已安装" : "未安装")
+                            .font(BatonFont.text(size: 12))
+                            .foregroundStyle(Color.batonFg2)
+                        PillButton(
+                            title: vm.virtualMicrophoneInstalled ? "卸载…" : "安装…",
+                            variant: .ghost,
+                            action: vm.virtualMicrophoneInstalled
+                                ? vm.uninstallVirtualMicrophone
+                                : vm.installVirtualMicrophone
+                        )
+                    }
+                }
+                DividerLine()
+                kvRow("使用方式") {
+                    HStack(spacing: 8) {
+                        Text("按住 Siri 键讲话，松开停止")
+                            .font(BatonFont.text(size: 12))
+                            .foregroundStyle(Color.batonFg2)
+                        PillButton(
+                            title: "用于当前配置",
+                            variant: .ghost,
+                            action: vm.useRemoteMicrophoneForCurrentProfile
+                        )
+                    }
+                }
+                DividerLine()
+                kvRow("同时按住快捷键") {
+                    HStack(spacing: 8) {
+                        KeyRecorderButton(
+                            placeholder: "未设置",
+                            existing: vm.remoteMicrophoneHoldKey?.label,
+                            onCommit: vm.setRemoteMicrophoneHoldKey
+                        )
+                        if vm.remoteMicrophoneHoldKey != nil {
+                            PillButton(
+                                title: "清除",
+                                variant: .ghost,
+                                action: vm.clearRemoteMicrophoneHoldKey
+                            )
+                        }
+                    }
+                }
+            }
+            .onAppear { vm.refreshMicrophoneComponents() }
 
             GroupLabel("关于")
             GroupCard {
@@ -80,9 +168,27 @@ struct SettingsPane: View {
                 }
                 DividerLine()
                 kvRow("开发者") {
-                    Text("Baton Team")
+                    Text("Cillin")
                         .font(BatonFont.text(size: 13))
                         .foregroundStyle(Color.batonFg)
+                }
+                DividerLine()
+                kvRow("开发者邮箱") {
+                    Link("cillinn@outlook.com", destination: URL(string: "mailto:cillinn@outlook.com")!)
+                        .font(BatonFont.text(size: 13))
+                        .foregroundStyle(Color.accentColor)
+                }
+                DividerLine()
+                kvRow("GitHub 仓库") {
+                    Link(destination: URL(string: "https://github.com/cillins/Baton")!) {
+                        HStack(spacing: 7) {
+                            GitHubMark()
+                            Text("cillins/Baton")
+                        }
+                        .font(BatonFont.text(size: 13))
+                        .foregroundStyle(Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
                 }
                 DividerLine()
                 kvRow("本地数据") {
@@ -92,21 +198,26 @@ struct SettingsPane: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                // CSS .card-foot: margin-top 10, padding-top 10,
-                // border-top 1px border-soft, display flex,
-                // justify-content flex-end, gap 8.
-                HStack(spacing: 8) {
-                    Spacer(minLength: 0)
-                    PillButton(title: "查看帮助", variant: .primary, action: vm.openHelp)
-                }
-                .padding(.top, 10)
-                .overlay(alignment: .top) {
-                    Rectangle()
-                        .fill(Color.batonBorderSoft)
-                        .frame(height: 1)
-                        .padding(.top, 9)
+            }
+        }
+    }
+
+    private struct GitHubMark: View {
+        var body: some View {
+            Group {
+                if let url = Bundle.main.url(forResource: "GitHubMark", withExtension: "svg"),
+                   let image = NSImage(contentsOf: url) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .renderingMode(.template)
+                } else {
+                    Image(systemName: "link")
+                        .resizable()
                 }
             }
+            .scaledToFit()
+            .frame(width: 17, height: 17)
+            .accessibilityHidden(true)
         }
     }
 

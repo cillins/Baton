@@ -22,6 +22,7 @@ enum ButtonAction: String, CaseIterable, Codable {
     case spaceKey = "Space: Claude Voice Dictation"
     case rightCmd = "Right Command: 3rd-party Voice Dictation"
     case rightOpt = "Right Option: 3rd-party Voice Dictation"
+    case remoteMicrophone = "Siri Remote: Virtual Microphone"
     case mediaPlayPause = "Media: Play/Pause"
     case mediaNext = "Media: Next Track"
     case mediaPrev = "Media: Previous Track"
@@ -39,7 +40,7 @@ enum ButtonAction: String, CaseIterable, Codable {
     /// only offered for hold-capable buttons.
     var requiresHold: Bool {
         switch self {
-        case .spaceKey, .rightCmd, .rightOpt: return true
+        case .spaceKey, .rightCmd, .rightOpt, .remoteMicrophone: return true
         default: return false
         }
     }
@@ -60,6 +61,7 @@ enum ButtonAction: String, CaseIterable, Codable {
         case .spaceKey:         return "␣"
         case .rightCmd:         return "⌘"         // ⌘ is on the Cmd key
         case .rightOpt:         return "⌥"
+        case .remoteMicrophone: return "🎙"
         case .mediaPlayPause:   return "⏯"
         case .mediaNext:        return "⏭"
         case .mediaPrev:        return "⏮"
@@ -179,17 +181,19 @@ struct Profile: Codable, Equatable {
     var swipeMappings: [String: SwipeAction]     // keys: "up"/"down"/"left"/"right"
     /// "mouse" = cursor control only; "gesture" = swipe shortcuts only (no cursor).
     var trackpadMode: String
+    var scrollSpeed: String
 
     enum CodingKeys: String, CodingKey {
-        case id, name, builtin, buttonMappings, swipeMappings, trackpadMode
+        case id, name, builtin, buttonMappings, swipeMappings, trackpadMode, scrollSpeed
     }
 
     init(id: String, name: String, builtin: Bool,
          buttonMappings: [String: ButtonAction], swipeMappings: [String: SwipeAction],
-         trackpadMode: String = "mouse") {
+         trackpadMode: String = "mouse", scrollSpeed: String = ScrollSpeed.medium.rawValue) {
         self.id = id; self.name = name; self.builtin = builtin
         self.buttonMappings = buttonMappings; self.swipeMappings = swipeMappings
         self.trackpadMode = trackpadMode
+        self.scrollSpeed = scrollSpeed
     }
 
     init(from decoder: Decoder) throws {
@@ -200,6 +204,9 @@ struct Profile: Codable, Equatable {
         buttonMappings = try c.decode([String: ButtonAction].self, forKey: .buttonMappings)
         swipeMappings = try c.decode([String: SwipeAction].self, forKey: .swipeMappings)
         trackpadMode = try c.decodeIfPresent(String.self, forKey: .trackpadMode) ?? "mouse"
+        scrollSpeed = try c.decodeIfPresent(String.self, forKey: .scrollSpeed)
+            ?? UserDefaults.standard.string(forKey: "scrollSpeed")
+            ?? ScrollSpeed.medium.rawValue
     }
 }
 
@@ -248,13 +255,15 @@ class MenuBarManager {
     // Swipe gesture mappings (stored in UserDefaults under "swipeMappings").
     private var swipeMappings: [SwipeDirection: SwipeAction] = [:]
 
-    // Custom action payloads, keyed by button key / swipe direction rawValue.
+    // Custom action payloads, keyed by profile id + button key / swipe direction.
     // Key combo dict: {"keyCode": Int, "modifiers": ["cmd","shift","opt","ctrl"],
     // "label": "⌘⇧P", optional "systemKeyCode": Int for NX_SYSDEFINED keys}.
     private var customButtonTexts: [String: String] = [:]
     private var customButtonKeys: [String: [String: Any]] = [:]
     private var customSwipeTexts: [String: String] = [:]
     private var customSwipeKeys: [String: [String: Any]] = [:]
+    private static let customPayloadSeparator = "::"
+    private var remoteMicrophoneHoldKey: [String: Any]?
 
     private static let defaultSwipeMappings: [SwipeDirection: SwipeAction] = [
         .up:    .upArrow,
@@ -269,7 +278,7 @@ class MenuBarManager {
         "select": .trackpadClick,
         "volumeUp": .systemVolumeUp,
         "volumeDown": .systemVolumeDown,
-        "siri": .spaceKey,
+        "siri": .remoteMicrophone,
         "tv": .none
     ]
 
@@ -287,7 +296,7 @@ class MenuBarManager {
         "select": .trackpadClick,
         "volumeUp": .none,
         "volumeDown": .none,
-        "siri": .spaceKey,
+        "siri": .remoteMicrophone,
         "tv": .none
     ]
 
@@ -430,8 +439,8 @@ class MenuBarManager {
         loadScrollSpeed()
         loadGyroSettings()
         loadTrackpadSensitivity()
-        loadCustomPayloads()
         loadProfiles()
+        loadCustomPayloads()
         loadAppPresets()
         setupMenuBar()
     }
@@ -443,7 +452,8 @@ class MenuBarManager {
         //   v3: old media-key actions removed — drop all saved button mappings
         //   v4: "select" default changed from .enterKey to .trackpadClick — reset just that entry
         //   v5: default volume buttons explicitly map to system volume up/down
-        let currentSchema = 5
+        //   v6: Siri's factory mapping now drives the A1962 virtual microphone
+        let currentSchema = 6
         let savedSchema = UserDefaults.standard.integer(forKey: "buttonMappingsSchema")
         if savedSchema < 3 {
             UserDefaults.standard.removeObject(forKey: "buttonMappings")
@@ -464,6 +474,12 @@ class MenuBarManager {
             if saved["volumeDown"] == ButtonAction.none.rawValue {
                 saved.removeValue(forKey: "volumeDown")
             }
+            UserDefaults.standard.set(saved, forKey: "buttonMappings")
+        }
+        if savedSchema >= 5 && savedSchema < 6,
+           var saved = UserDefaults.standard.dictionary(forKey: "buttonMappings") as? [String: String],
+           saved["siri"] == ButtonAction.spaceKey.rawValue {
+            saved.removeValue(forKey: "siri")
             UserDefaults.standard.set(saved, forKey: "buttonMappings")
         }
         if savedSchema < currentSchema {
@@ -658,12 +674,17 @@ class MenuBarManager {
         }
     }
 
-    /// Update scroll speed from the settings window; persists + notifies the touch handler.
-    func setScrollSpeed(_ speed: ScrollSpeed) {
-        guard speed != scrollSpeed else { return }
-        scrollSpeed = speed
-        UserDefaults.standard.set(speed.rawValue, forKey: "scrollSpeed")
-        onScrollSpeedChange?(speed)
+    /// Update one profile's scroll speed. Only an active profile change is
+    /// mirrored onto the runtime touch handler.
+    func setScrollSpeed(profileId: String, speed: ScrollSpeed) {
+        guard let i = profiles.firstIndex(where: { $0.id == profileId }) else { return }
+        profiles[i].scrollSpeed = speed.rawValue
+        if profileId == currentProfileId, speed != scrollSpeed {
+            scrollSpeed = speed
+            UserDefaults.standard.set(speed.rawValue, forKey: "scrollSpeed")
+            onScrollSpeedChange?(speed)
+        }
+        saveProfiles()
     }
 
     private func loadGyroSettings() {
@@ -725,36 +746,130 @@ class MenuBarManager {
     // MARK: - Custom action payloads (user-defined text / key combo per mapping row)
 
     private func loadCustomPayloads() {
-        customButtonTexts = UserDefaults.standard.dictionary(forKey: "customButtonTexts") as? [String: String] ?? [:]
-        customSwipeTexts = UserDefaults.standard.dictionary(forKey: "customSwipeTexts") as? [String: String] ?? [:]
-        customButtonKeys = UserDefaults.standard.dictionary(forKey: "customButtonKeyCombos") as? [String: [String: Any]] ?? [:]
-        customSwipeKeys = UserDefaults.standard.dictionary(forKey: "customSwipeKeyCombos") as? [String: [String: Any]] ?? [:]
+        let defaults = UserDefaults.standard
+        customButtonTexts = defaults.dictionary(forKey: "profileCustomButtonTexts") as? [String: String] ?? [:]
+        customSwipeTexts = defaults.dictionary(forKey: "profileCustomSwipeTexts") as? [String: String] ?? [:]
+        customButtonKeys = defaults.dictionary(forKey: "profileCustomButtonKeyCombos") as? [String: [String: Any]] ?? [:]
+        customSwipeKeys = defaults.dictionary(forKey: "profileCustomSwipeKeyCombos") as? [String: [String: Any]] ?? [:]
+
+        // Before schema 2 custom payloads were global and keyed only by the
+        // physical button/direction. Copy them into every existing profile so
+        // upgrading preserves behaviour, then all future edits stay isolated.
+        if defaults.integer(forKey: "customPayloadSchema") < 2 {
+            let oldButtonTexts = defaults.dictionary(forKey: "customButtonTexts") as? [String: String] ?? [:]
+            let oldSwipeTexts = defaults.dictionary(forKey: "customSwipeTexts") as? [String: String] ?? [:]
+            let oldButtonKeys = defaults.dictionary(forKey: "customButtonKeyCombos") as? [String: [String: Any]] ?? [:]
+            let oldSwipeKeys = defaults.dictionary(forKey: "customSwipeKeyCombos") as? [String: [String: Any]] ?? [:]
+            for profile in profiles {
+                for (key, value) in oldButtonTexts {
+                    customButtonTexts[payloadKey(profileId: profile.id, itemKey: key)] = value
+                }
+                for (key, value) in oldSwipeTexts {
+                    customSwipeTexts[payloadKey(profileId: profile.id, itemKey: key)] = value
+                }
+                for (key, value) in oldButtonKeys {
+                    customButtonKeys[payloadKey(profileId: profile.id, itemKey: key)] = value
+                }
+                for (key, value) in oldSwipeKeys {
+                    customSwipeKeys[payloadKey(profileId: profile.id, itemKey: key)] = value
+                }
+            }
+            defaults.set(2, forKey: "customPayloadSchema")
+            saveCustomPayloads()
+        }
+        remoteMicrophoneHoldKey = UserDefaults.standard.dictionary(
+            forKey: "remoteMicrophoneHoldKeyCombo"
+        )
     }
 
-    func customText(forButton button: String) -> String? { customButtonTexts[button] }
-    func customKeyCombo(forButton button: String) -> [String: Any]? { customButtonKeys[button] }
-    func customText(forSwipe direction: SwipeDirection) -> String? { customSwipeTexts[direction.rawValue] }
-    func customKeyCombo(forSwipe direction: SwipeDirection) -> [String: Any]? { customSwipeKeys[direction.rawValue] }
+    private func payloadKey(profileId: String, itemKey: String) -> String {
+        profileId + Self.customPayloadSeparator + itemKey
+    }
+
+    private func saveCustomPayloads() {
+        let defaults = UserDefaults.standard
+        defaults.set(customButtonTexts, forKey: "profileCustomButtonTexts")
+        defaults.set(customSwipeTexts, forKey: "profileCustomSwipeTexts")
+        defaults.set(customButtonKeys, forKey: "profileCustomButtonKeyCombos")
+        defaults.set(customSwipeKeys, forKey: "profileCustomSwipeKeyCombos")
+    }
+
+    func customText(forButton button: String, profileId: String? = nil) -> String? {
+        customButtonTexts[payloadKey(profileId: profileId ?? currentProfileId, itemKey: button)]
+    }
+    func customKeyCombo(forButton button: String, profileId: String? = nil) -> [String: Any]? {
+        customButtonKeys[payloadKey(profileId: profileId ?? currentProfileId, itemKey: button)]
+    }
+    func customText(forSwipe direction: SwipeDirection, profileId: String? = nil) -> String? {
+        customSwipeTexts[payloadKey(profileId: profileId ?? currentProfileId, itemKey: direction.rawValue)]
+    }
+    func customKeyCombo(forSwipe direction: SwipeDirection, profileId: String? = nil) -> [String: Any]? {
+        customSwipeKeys[payloadKey(profileId: profileId ?? currentProfileId, itemKey: direction.rawValue)]
+    }
+    func remoteMicrophoneHoldKeyCombo() -> [String: Any]? { remoteMicrophoneHoldKey }
+
+    /// System-volume key represented by the active mapping, including a key
+    /// captured through the custom-key recorder.
+    func mappedSystemVolumeKeyCode(forButton button: String) -> Int? {
+        switch getMapping(for: button) {
+        case .systemVolumeUp:
+            return Int(NX_KEYTYPE_SOUND_UP)
+        case .systemVolumeDown:
+            return Int(NX_KEYTYPE_SOUND_DOWN)
+        case .customKey:
+            return customKeyCombo(forButton: button)?["systemKeyCode"] as? Int
+        default:
+            return nil
+        }
+    }
+
+    /// True only when the mapped system-volume direction matches the physical
+    /// button. In that case the remote's native AVRCP change is the single
+    /// source of truth and no synthetic key should be posted.
+    func usesPhysicalVolumePassThrough(forButton button: String) -> Bool {
+        let physicalCode: Int
+        switch button {
+        case "volumeUp": physicalCode = Int(NX_KEYTYPE_SOUND_UP)
+        case "volumeDown": physicalCode = Int(NX_KEYTYPE_SOUND_DOWN)
+        default: return false
+        }
+        return mappedSystemVolumeKeyCode(forButton: button) == physicalCode
+    }
 
     /// Window-facing setters. Empty text / nil combo removes the entry.
-    func setCustomText(forButton button: String, text: String) {
-        customButtonTexts[button] = text.isEmpty ? nil : text
-        UserDefaults.standard.set(customButtonTexts, forKey: "customButtonTexts")
+    func setCustomText(forButton button: String, text: String, profileId: String? = nil) {
+        let key = payloadKey(profileId: profileId ?? currentProfileId, itemKey: button)
+        customButtonTexts[key] = text.isEmpty ? nil : text
+        saveCustomPayloads()
     }
 
-    func setCustomText(forSwipe direction: SwipeDirection, text: String) {
-        customSwipeTexts[direction.rawValue] = text.isEmpty ? nil : text
-        UserDefaults.standard.set(customSwipeTexts, forKey: "customSwipeTexts")
+    func setCustomText(forSwipe direction: SwipeDirection, text: String, profileId: String? = nil) {
+        let key = payloadKey(profileId: profileId ?? currentProfileId, itemKey: direction.rawValue)
+        customSwipeTexts[key] = text.isEmpty ? nil : text
+        saveCustomPayloads()
     }
 
-    func setCustomKeyCombo(forButton button: String, combo: [String: Any]) {
-        customButtonKeys[button] = combo
-        UserDefaults.standard.set(customButtonKeys, forKey: "customButtonKeyCombos")
+    func setCustomKeyCombo(forButton button: String, combo: [String: Any], profileId: String? = nil) {
+        let key = payloadKey(profileId: profileId ?? currentProfileId, itemKey: button)
+        let isEmpty = (combo["keyCode"] as? Int ?? 0) == 0 && (combo["label"] as? String ?? "").isEmpty
+        customButtonKeys[key] = isEmpty ? nil : combo
+        saveCustomPayloads()
     }
 
-    func setCustomKeyCombo(forSwipe direction: SwipeDirection, combo: [String: Any]) {
-        customSwipeKeys[direction.rawValue] = combo
-        UserDefaults.standard.set(customSwipeKeys, forKey: "customSwipeKeyCombos")
+    func setCustomKeyCombo(forSwipe direction: SwipeDirection, combo: [String: Any], profileId: String? = nil) {
+        let key = payloadKey(profileId: profileId ?? currentProfileId, itemKey: direction.rawValue)
+        let isEmpty = (combo["keyCode"] as? Int ?? 0) == 0 && (combo["label"] as? String ?? "").isEmpty
+        customSwipeKeys[key] = isEmpty ? nil : combo
+        saveCustomPayloads()
+    }
+
+    func setRemoteMicrophoneHoldKeyCombo(_ combo: [String: Any]?) {
+        remoteMicrophoneHoldKey = combo
+        if let combo {
+            UserDefaults.standard.set(combo, forKey: "remoteMicrophoneHoldKeyCombo")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "remoteMicrophoneHoldKeyCombo")
+        }
     }
 
     /// Execute a custom text action (types into the frontmost app, no Enter).
@@ -763,8 +878,21 @@ class MenuBarManager {
     }
 
     /// Execute a custom key-combo action (modifiers + virtual keyCode).
-    func executeCustomKey(keyCode: Int, modifiers: [String], systemKeyCode: Int? = nil) {
+    func executeCustomKey(keyCode: Int, modifiers: [String], systemKeyCode: Int? = nil,
+                          sourceButton: String? = nil) {
         if let systemKeyCode {
+            if let sourceButton,
+               sourceButton == "volumeUp" || sourceButton == "volumeDown" {
+                if usesPhysicalVolumePassThrough(forButton: sourceButton) {
+                    // The matching AVRCP event already performs this action.
+                    return
+                }
+                rmDebug("🔊 deferring opposite mapped volume key for \(sourceButton)")
+                VolumeRevertGuard.shared.performAfterGuard { [weak self] in
+                    self?.mediaController?.sendSystemKey(nxKeyCode: Int32(systemKeyCode))
+                }
+                return
+            }
             mediaController?.sendSystemKey(nxKeyCode: Int32(systemKeyCode))
         } else if keyCode == kVK_Function || modifiers.contains("fn") {
             sendFnKeyTap()
@@ -845,9 +973,9 @@ class MenuBarManager {
             // No trailing space: these commands stand alone or open an interactive picker.
             typeString(action.rawValue)
         case .customText:
-            if let text = customSwipeTexts[direction.rawValue] { typeString(text) }
+            if let text = customText(forSwipe: direction) { typeString(text) }
         case .customKey:
-            if let combo = customSwipeKeys[direction.rawValue],
+            if let combo = customKeyCombo(forSwipe: direction),
                let keyCode = combo["keyCode"] as? Int,
                let modifiers = combo["modifiers"] as? [String] {
                 executeCustomKey(keyCode: keyCode, modifiers: modifiers,
@@ -907,6 +1035,8 @@ class MenuBarManager {
             sendModifierTap(kVK_RightCommand, flag: .maskCommand)
         case .rightOpt:
             sendModifierTap(kVK_RightOption, flag: .maskAlternate)
+        case .remoteMicrophone:
+            break
         case .mediaPlayPause:
             mediaController?.sendMediaKey(.playPause)
         case .mediaNext:
@@ -916,22 +1046,26 @@ class MenuBarManager {
         case .mediaMute:
             mediaController?.sendMediaKey(.mute)
         case .systemVolumeUp, .systemVolumeDown:
-            // The Siri Remote's AVRCP absolute-volume channel performs the
-            // actual change. This semantic action controls whether that
-            // channel is allowed through without synthesizing a duplicate.
-            break
+            let keyCode = action == .systemVolumeUp
+                ? Int(NX_KEYTYPE_SOUND_UP) : Int(NX_KEYTYPE_SOUND_DOWN)
+            if !usesPhysicalVolumePassThrough(forButton: button) {
+                VolumeRevertGuard.shared.performAfterGuard { [weak self] in
+                    self?.mediaController?.sendSystemKey(nxKeyCode: Int32(keyCode))
+                }
+            }
         case .presentation:
             sendKey(kVK_ANSI_P, flags: [.maskCommand, .maskAlternate])
         case .trackpadClick:
             performClick()
         case .customText:
-            if let text = customButtonTexts[button] { typeString(text) }
+            if let text = customText(forButton: button) { typeString(text) }
         case .customKey:
-            if let combo = customButtonKeys[button],
+            if let combo = customKeyCombo(forButton: button),
                let keyCode = combo["keyCode"] as? Int,
                let modifiers = combo["modifiers"] as? [String] {
                 executeCustomKey(keyCode: keyCode, modifiers: modifiers,
-                                 systemKeyCode: combo["systemKeyCode"] as? Int)
+                                 systemKeyCode: combo["systemKeyCode"] as? Int,
+                                 sourceButton: button)
             }
         }
     }
@@ -1003,9 +1137,9 @@ class MenuBarManager {
         // Profile schema version: bump when built-in profile definitions change so
         // existing users' built-in profiles get refreshed to the new canonical mappings.
         // User-created (non-builtin) profiles are never touched.
-        let profileSchema = 10
+        let profileSchema = 12
         let savedSchema = UserDefaults.standard.integer(forKey: "profileSchema")
-        if savedSchema < profileSchema {
+        if savedSchema < 11 {
             // Overwrite built-in profiles with canonical defaults.
             for seed in builtinSeeds {
                 if let idx = loaded.firstIndex(where: { $0.id == seed.id && $0.builtin }) {
@@ -1015,6 +1149,18 @@ class MenuBarManager {
                     loaded[idx].trackpadMode = seed.trackpadMode
                 }
             }
+        }
+        if savedSchema < 12 {
+            // The virtual-microphone default landed after schema 11 had
+            // already shipped. Migrate only the former factory Siri action so
+            // user edits to every other built-in mapping remain untouched.
+            for index in loaded.indices where loaded[index].builtin &&
+                (loaded[index].id == "default" || loaded[index].id == "coding") &&
+                loaded[index].buttonMappings["siri"] == .spaceKey {
+                loaded[index].buttonMappings["siri"] = .remoteMicrophone
+            }
+        }
+        if savedSchema < profileSchema {
             UserDefaults.standard.set(profileSchema, forKey: "profileSchema")
         }
 
@@ -1075,6 +1221,12 @@ class MenuBarManager {
         guard let p = profiles.first(where: { $0.id == profileId }) else { return }
         buttonMappings = p.buttonMappings
         swipeMappings = swipeDirectionMap(p.swipeMappings)
+        let profileScrollSpeed = ScrollSpeed(rawValue: p.scrollSpeed) ?? .medium
+        if scrollSpeed != profileScrollSpeed {
+            scrollSpeed = profileScrollSpeed
+            UserDefaults.standard.set(profileScrollSpeed.rawValue, forKey: "scrollSpeed")
+            onScrollSpeedChange?(profileScrollSpeed)
+        }
         onTrackpadModeChange?(p.trackpadMode)
         rebuildMenu()
     }
@@ -1093,7 +1245,10 @@ class MenuBarManager {
         let id = "custom-\(Int(Date().timeIntervalSince1970 * 1000))"
         profiles.append(Profile(id: id, name: name, builtin: false,
                                 buttonMappings: base.buttonMappings,
-                                swipeMappings: base.swipeMappings))
+                                swipeMappings: base.swipeMappings,
+                                trackpadMode: base.trackpadMode,
+                                scrollSpeed: base.scrollSpeed))
+        copyCustomPayloads(from: base.id, to: id)
         saveProfiles()
         return id
     }
@@ -1101,6 +1256,7 @@ class MenuBarManager {
     func deleteProfile(id: String) {
         guard let p = profiles.first(where: { $0.id == id }), !p.builtin else { return }
         profiles.removeAll { $0.id == id }
+        removeCustomPayloads(profileId: id)
         if currentProfileId == id {
             currentProfileId = "default"
             applyProfileMappings(profileId: "default")
@@ -1184,16 +1340,48 @@ class MenuBarManager {
         if let seed = Self.builtinSeeds.first(where: { $0.id == profileId }) {
             profiles[i].buttonMappings = seed.buttonMappings
             profiles[i].swipeMappings = swipeDirectionKeys(seed.swipeMappings)
+            profiles[i].scrollSpeed = ScrollSpeed.medium.rawValue
         } else {
             // User-created profile: clear all to .none
             profiles[i].buttonMappings = profiles[i].buttonMappings.mapValues { _ in .none }
             profiles[i].swipeMappings = profiles[i].swipeMappings.mapValues { _ in .none }
+            profiles[i].scrollSpeed = ScrollSpeed.medium.rawValue
         }
+        removeCustomPayloads(profileId: profileId)
         if profileId == currentProfileId {
             applyProfileMappings(profileId: profileId)
             rebuildMenu()
         }
         saveProfiles()
+    }
+
+    private func copyCustomPayloads(from sourceProfileId: String, to destinationProfileId: String) {
+        let sourcePrefix = sourceProfileId + Self.customPayloadSeparator
+        func copiedKey(_ key: String) -> String {
+            destinationProfileId + Self.customPayloadSeparator + String(key.dropFirst(sourcePrefix.count))
+        }
+        for (key, value) in Array(customButtonTexts) where key.hasPrefix(sourcePrefix) {
+            customButtonTexts[copiedKey(key)] = value
+        }
+        for (key, value) in Array(customSwipeTexts) where key.hasPrefix(sourcePrefix) {
+            customSwipeTexts[copiedKey(key)] = value
+        }
+        for (key, value) in Array(customButtonKeys) where key.hasPrefix(sourcePrefix) {
+            customButtonKeys[copiedKey(key)] = value
+        }
+        for (key, value) in Array(customSwipeKeys) where key.hasPrefix(sourcePrefix) {
+            customSwipeKeys[copiedKey(key)] = value
+        }
+        saveCustomPayloads()
+    }
+
+    private func removeCustomPayloads(profileId: String) {
+        let prefix = profileId + Self.customPayloadSeparator
+        customButtonTexts = customButtonTexts.filter { !$0.key.hasPrefix(prefix) }
+        customSwipeTexts = customSwipeTexts.filter { !$0.key.hasPrefix(prefix) }
+        customButtonKeys = customButtonKeys.filter { !$0.key.hasPrefix(prefix) }
+        customSwipeKeys = customSwipeKeys.filter { !$0.key.hasPrefix(prefix) }
+        saveCustomPayloads()
     }
 
     func addAppPreset(bundleId: String, appName: String, profileId: String, iconData: Data?) {
@@ -1225,13 +1413,13 @@ class MenuBarManager {
     }
 
     /// Called from the NSWorkspace observer when the frontmost app changes.
-    /// If a preset binds it to a profile, flip the active profile; otherwise
-    /// leave the current selection alone. Always resets the system override
-    /// so the new app's preset takes effect.
+    /// Apply the bound profile, or restore the default profile for an unbound
+    /// app. Always resets the system override so automatic switching resumes.
     func applyAppActivation(bundleId: String) {
         isSystemOverride = false
-        guard let p = appPresets.first(where: { $0.bundleId == bundleId }) else { return }
-        selectProfile(id: p.profileId)
+        let profileId = appPresets.first(where: { $0.bundleId == bundleId })?.profileId ?? "default"
+        rmDebug("🎛 app activated: \(bundleId) -> profile=\(profileId)")
+        selectProfile(id: profileId)
     }
 
     /// True when user manually forced the system (default) profile via TV key.

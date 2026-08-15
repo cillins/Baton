@@ -2,8 +2,8 @@
 //  SettingsRootView.swift
 //  Baton
 //
-//  Top-level SwiftUI composition for the settings window. Mirrors the
-//  layout from `App.jsx`: titlebar (with traffic-light slot) -> sidebar +
+//  Top-level SwiftUI composition for the settings window:
+//  titlebar (with traffic-light slot) -> sidebar +
 //  detail body (with art panel) -> toast overlay + (when set) profile-edit modal.
 //
 //  The titlebar uses `ZStack` to layer a centered "Baton" title on top of
@@ -29,8 +29,7 @@ struct SettingsRootView: View {
         ZStack(alignment: .topLeading) {
             // CSS .window-frame { display: flex; flex-direction: column }
             // Titlebar is a flex item (46pt), body fills the rest - NOT an
-            // overlay. This matches React's layout where the sidebar starts
-            // below the titlebar, not under it.
+            // overlay. The sidebar starts below the titlebar, not under it.
             VStack(spacing: 0) {
                 titlebar
                     .frame(height: 46)
@@ -238,7 +237,8 @@ private struct ToastView: View {
 
 /// CSS .wt-btn: 28pt height, padding 0 10, 1px border-soft, radius 7, bg --bg,
 /// color --fg-2, font 12. .wt-btn:hover { border-color: --meta; color: --fg }.
-/// .wt-btn.on { accent-40% border, accent-10% bg, accent-active color }.
+/// The active state follows the selected segmented-tab treatment: standard
+/// foreground, raised background, soft border, and a subtle shadow.
 private struct TitlebarButtonContent: View {
     let systemName: String
     let title: String
@@ -255,17 +255,19 @@ private struct TitlebarButtonContent: View {
                 Text(title)
                     .font(BatonFont.text(size: 12))
             }
-            .foregroundStyle(active ? Color.batonAccentActive
+            .foregroundStyle(active ? Color.batonFg
                           : (hovering ? Color.batonFg : Color.batonFg2))
             .padding(.horizontal, 10)
             .frame(height: 28)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(active ? Color.batonAccent.opacity(0.10) : Color.batonBg)
+                    .fill(active ? Color.batonBg : Color.clear)
+                    .shadow(color: active ? .black.opacity(0.12) : .clear,
+                            radius: 1, x: 0, y: 1)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(active ? Color.batonAccent.opacity(0.40)
+                    .stroke(active ? Color.batonBorderSoft
                            : (hovering ? Color.batonMeta : Color.batonBorderSoft),
                             lineWidth: 1)
             )

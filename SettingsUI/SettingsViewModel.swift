@@ -2,16 +2,16 @@
 //  SettingsViewModel.swift
 //  Baton
 //
-//  Owns the mirror state for the settings window. Bridges MenuBarManager /
-//  RemoteDetector mutations into SwiftUI @Published fields and exposes intent
-//  methods that match the old WebBridge protocol 1:1 (so UI code reads like
-//  the JS bridge did).
+//  Owns the state for the settings window. Bridges MenuBarManager /
+//  RemoteDetector mutations into SwiftUI @Published fields and exposes
+//  user intent methods.
 //
 
 import AppKit
 import Combine
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - VM types (mirror the JSON payload the old bridge sent)
 
@@ -117,7 +117,7 @@ final class SettingsViewModel: ObservableObject {
     // Device / hardware state
     @Published var device: DeviceState
 
-    // Mapping state (mirrors WebBridge.pushMappings payload)
+    // Mapping state mirrored from MenuBarManager.
     @Published var buttons: [ButtonRowVM] = []
     @Published var swipes: [SwipeRowVM] = []
     @Published var scrollSpeed: String = "Medium"
@@ -140,6 +140,11 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var launchAtLogin = false
     @Published private(set) var keepRunningWhenClosed = true
     @Published private(set) var showBatteryInMenuBar = false
+    @Published private(set) var microphoneHelperStatus = "未安装"
+    @Published private(set) var virtualMicrophoneInstalled = false
+    @Published private(set) var packetLoggerStatus = "未安装"
+    @Published private(set) var packetLoggerReady = false
+    @Published private(set) var remoteMicrophoneHoldKey: KeyCombo?
 
     // Appearance — read from MB on init, propagated back when user picks in UI.
     @Published var appearance: AppearanceMode = .auto {
@@ -149,8 +154,7 @@ final class SettingsViewModel: ObservableObject {
     private weak var menuBarManager: MenuBarManager?
     private weak var remoteDetector: RemoteDetector?
 
-    // Cached last values for partial-update composition, matching what the
-    // SettingsWindowController + WebBridge did.
+    // Cached last values for partial-update composition.
     private var lastConnected: Bool
     private var lastDeviceName: String?
     private var lastGeneration: String?
@@ -190,6 +194,7 @@ final class SettingsViewModel: ObservableObject {
             forKey: AppPreferenceKey.showBatteryInMenuBar
         )
         menuBarManager.setShowsBatteryPercentage(showBatteryInMenuBar)
+        refreshMicrophoneComponents()
 
         // Cache a single mutation callback so the VM gets fresh state when the
         // active profile flips (manual switch or app-activation binding).
@@ -283,8 +288,8 @@ final class SettingsViewModel: ObservableObject {
 
         let buttons: [ButtonRowVM] = MenuBarManager.buttonRows.map { row in
             let action = p.buttonMappings[row.key] ?? .none
-            let text = mgr.customText(forButton: row.key)
-            let combo = mgr.customKeyCombo(forButton: row.key)
+            let text = mgr.customText(forButton: row.key, profileId: profileId)
+            let combo = mgr.customKeyCombo(forButton: row.key, profileId: profileId)
             return ButtonRowVM(
                 key: row.key, label: row.label, gesture: row.gesture,
                 action: action.rawValue,
@@ -302,8 +307,8 @@ final class SettingsViewModel: ObservableObject {
         ]
         let swipes: [SwipeRowVM] = swipeMeta.map { (dir, label, desc) in
             let action = p.swipeMappings[dir.rawValue] ?? .none
-            let text = mgr.customText(forSwipe: dir)
-            let combo = mgr.customKeyCombo(forSwipe: dir)
+            let text = mgr.customText(forSwipe: dir, profileId: profileId)
+            let combo = mgr.customKeyCombo(forSwipe: dir, profileId: profileId)
             return SwipeRowVM(
                 key: dir.rawValue, label: label, desc: desc,
                 action: action.rawValue,
@@ -319,7 +324,7 @@ final class SettingsViewModel: ObservableObject {
             builtin: p.builtin,
             buttons: buttons,
             swipes: swipes,
-            scrollSpeed: mgr.scrollSpeed.rawValue,
+            scrollSpeed: p.scrollSpeed,
             scrollSpeedOptions: ScrollSpeed.allCases.map {
                 ScrollSpeedOptionVM(raw: $0.rawValue, label: $0.displayName)
             },
@@ -382,7 +387,7 @@ final class SettingsViewModel: ObservableObject {
         )
     }
 
-    // MARK: - Intents (1:1 with old WebBridge handler cases)
+    // MARK: - Intents
 
     func setLaunchAtLogin(_ enabled: Bool) {
         do {
@@ -409,6 +414,176 @@ final class SettingsViewModel: ObservableObject {
         menuBarManager?.setShowsBatteryPercentage(enabled)
     }
 
+    func refreshMicrophoneComponents() {
+        remoteMicrophoneHoldKey = menuBarManager?
+            .remoteMicrophoneHoldKeyCombo()
+            .flatMap(Self.keyComboFromDict)
+        switch RemoteMicrophoneController.packetLoggerStatus {
+        case .ready:
+            packetLoggerStatus = "已就绪"
+            packetLoggerReady = true
+        case .missing:
+            packetLoggerStatus = "未安装"
+            packetLoggerReady = false
+        case .invalidSignature:
+            packetLoggerStatus = "签名无效"
+            packetLoggerReady = false
+        }
+        switch RemoteMicrophoneController.shared.componentStatus {
+        case .unsupported: microphoneHelperStatus = "需要 macOS 13+"
+        case .notRegistered: microphoneHelperStatus = "未启用"
+        case .requiresApproval: microphoneHelperStatus = "等待系统批准"
+        case .enabled: microphoneHelperStatus = "已启用"
+        case .notFound: microphoneHelperStatus = "组件缺失"
+        }
+        virtualMicrophoneInstalled = VirtualMicrophoneFeeder.isDriverInstalled
+    }
+
+    func enableMicrophoneCaptureHelper() {
+        guard packetLoggerReady else {
+            showToast("请先从 Apple 官方安装 Bluetooth Logging for macOS / PacketLogger")
+            return
+        }
+        do {
+            if RemoteMicrophoneController.shared.componentStatus == .enabled {
+                RemoteMicrophoneController.shared.restartCaptureHelper { [weak self] result in
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        self.refreshMicrophoneComponents()
+                        switch result {
+                        case .success:
+                            self.showToast("遥控器麦克风采集组件已重启")
+                        case .failure(let error):
+                            self.showToast("无法重启麦克风组件：\(error.localizedDescription)")
+                        }
+                    }
+                }
+                return
+            } else {
+                try RemoteMicrophoneController.shared.registerCaptureHelper()
+            }
+            refreshMicrophoneComponents()
+            showToast(microphoneHelperStatus == "已启用"
+                ? "遥控器麦克风采集组件已重启"
+                : "请在系统设置的登录项中允许 Baton 麦克风组件")
+        } catch {
+            showToast("无法启用麦克风组件：\(error.localizedDescription)")
+        }
+    }
+
+    func managePacketLogger() {
+        if let appURL = RemoteMicrophoneController.packetLoggerAppURL,
+           RemoteMicrophoneController.packetLoggerStatus == .ready {
+            NSWorkspace.shared.activateFileViewerSelecting([appURL])
+        } else {
+            NSWorkspace.shared.open(RemoteMicrophoneController.packetLoggerDownloadURL)
+        }
+    }
+
+    func installBluetoothLoggingProfile() {
+        let panel = NSOpenPanel()
+        panel.title = "选择 Apple Bluetooth Logging 配置"
+        panel.message = "请选择从 Apple 官方下载的 BluetoothLogging.mobileconfig。安装需要在系统设置中确认。"
+        panel.prompt = "打开安装"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if let mobileConfigurationType = UTType(filenameExtension: "mobileconfig") {
+            panel.allowedContentTypes = [mobileConfigurationType]
+        }
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            guard url.pathExtension.lowercased() == "mobileconfig" else {
+                self?.showToast("请选择 .mobileconfig 配置文件")
+                return
+            }
+            guard Self.isMacOSBluetoothLoggingProfile(at: url) else {
+                self?.showToast("这不是 Apple Bluetooth Logging for macOS 配置")
+                return
+            }
+            if NSWorkspace.shared.open(url) {
+                self?.showToast("请在系统设置中确认安装 Bluetooth Logging 配置")
+            } else {
+                self?.showToast("无法打开该配置文件")
+            }
+        }
+    }
+
+    private static func isMacOSBluetoothLoggingProfile(at url: URL) -> Bool {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = ["cms", "-D", "-i", url.path]
+        process.standardOutput = output
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return false }
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            guard let payload = try PropertyListSerialization.propertyList(
+                from: data,
+                options: [],
+                format: nil
+            ) as? [String: Any] else { return false }
+            return payload["PayloadIdentifier"] as? String == "com.apple.bluetooth.logging"
+                && payload["PayloadScope"] as? String == "system"
+                && payload["PayloadDisplayName"] as? String == "Bluetooth Logging for macOS"
+        } catch {
+            return false
+        }
+    }
+
+    func installVirtualMicrophone() {
+        do {
+            try RemoteMicrophoneController.shared.openDriverInstaller()
+            showToast("请在终端中完成虚拟麦克风安装")
+        } catch {
+            showToast(error.localizedDescription)
+        }
+    }
+
+    func useRemoteMicrophoneForCurrentProfile() {
+        guard let profile = profiles.first(where: { $0.active }) else { return }
+        setProfileMapping(
+            profileId: profile.id,
+            target: "button",
+            key: "siri",
+            actionRaw: ButtonAction.remoteMicrophone.rawValue
+        )
+        showToast("当前配置的 Siri 键已设为遥控器麦克风")
+    }
+
+    func setRemoteMicrophoneHoldKey(_ combo: KeyCombo) {
+        var dict: [String: Any] = [
+            "keyCode": combo.keyCode,
+            "modifiers": combo.modifiers,
+            "label": combo.label,
+        ]
+        if let systemKeyCode = combo.systemKeyCode {
+            dict["systemKeyCode"] = systemKeyCode
+        }
+        menuBarManager?.setRemoteMicrophoneHoldKeyCombo(dict)
+        remoteMicrophoneHoldKey = combo
+        showToast("麦克风快捷键已设为 \(combo.label)")
+    }
+
+    func clearRemoteMicrophoneHoldKey() {
+        menuBarManager?.setRemoteMicrophoneHoldKeyCombo(nil)
+        remoteMicrophoneHoldKey = nil
+        showToast("已关闭麦克风附加快捷键")
+    }
+
+    func uninstallVirtualMicrophone() {
+        do {
+            try RemoteMicrophoneController.shared.openDriverUninstaller()
+            showToast("请在终端中完成虚拟麦克风卸载")
+        } catch {
+            showToast(error.localizedDescription)
+        }
+    }
+
     func openHelp() {
         guard let url = URL(string: "https://github.com/cillins/Baton") else { return }
         NSWorkspace.shared.open(url)
@@ -424,10 +599,11 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
-    func setScrollSpeed(_ raw: String) {
+    func setScrollSpeed(profileId: String, raw: String) {
         if let speed = ScrollSpeed(rawValue: raw) {
-            menuBarManager?.setScrollSpeed(speed)
+            menuBarManager?.setScrollSpeed(profileId: profileId, speed: speed)
             reload()
+            if editMappings?.profileId == profileId { reloadEdit(profileId: profileId) }
         }
     }
 
@@ -441,17 +617,17 @@ final class SettingsViewModel: ObservableObject {
         reload()
     }
 
-    func setCustomText(target: String, key: String, text: String) {
+    func setCustomText(profileId: String, target: String, key: String, text: String) {
         if target == "button" {
-            menuBarManager?.setCustomText(forButton: key, text: text)
+            menuBarManager?.setCustomText(forButton: key, text: text, profileId: profileId)
         } else if let dir = SwipeDirection(rawValue: key) {
-            menuBarManager?.setCustomText(forSwipe: dir, text: text)
+            menuBarManager?.setCustomText(forSwipe: dir, text: text, profileId: profileId)
         }
         reload()
         if let pid = editMappings?.profileId { reloadEdit(profileId: pid) }
     }
 
-    func setCustomKey(target: String, key: String, combo: KeyCombo) {
+    func setCustomKey(profileId: String, target: String, key: String, combo: KeyCombo) {
         var dict: [String: Any] = [
             "keyCode": combo.keyCode,
             "modifiers": combo.modifiers,
@@ -461,9 +637,9 @@ final class SettingsViewModel: ObservableObject {
             dict["systemKeyCode"] = systemKeyCode
         }
         if target == "button" {
-            menuBarManager?.setCustomKeyCombo(forButton: key, combo: dict)
+            menuBarManager?.setCustomKeyCombo(forButton: key, combo: dict, profileId: profileId)
         } else if let dir = SwipeDirection(rawValue: key) {
-            menuBarManager?.setCustomKeyCombo(forSwipe: dir, combo: dict)
+            menuBarManager?.setCustomKeyCombo(forSwipe: dir, combo: dict, profileId: profileId)
         }
         reload()
         if let pid = editMappings?.profileId { reloadEdit(profileId: pid) }
@@ -568,11 +744,18 @@ final class SettingsViewModel: ObservableObject {
     // MARK: - Appearance
 
     private func applyAppearanceToWindow() {
-        // Apply the choice at application level so every Baton window and
-        // popover resolves the same appearance. .auto restores system flow.
+        // Persist the app-window preference, but never force NSApplication's
+        // appearance: the status-item template image must inherit the actual
+        // system menu-bar appearance even when Baton windows are forced light
+        // or dark.
         UserDefaults.standard.set(appearance.rawValue, forKey: "appearanceMode")
-        NSApp.appearance = appearance.nsAppearance
-        NSApp.windows.forEach { $0.appearance = appearance.nsAppearance }
+        NSApp.appearance = nil
+        NSApp.windows
+            .filter {
+                $0.windowController is SettingsWindowController
+                    || $0.windowController is PermissionGuideWindowController
+            }
+            .forEach { $0.appearance = appearance.nsAppearance }
     }
 
     // MARK: - Helpers

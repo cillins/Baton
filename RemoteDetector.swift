@@ -42,7 +42,7 @@ enum Generation: String {
         }
     }
 
-    /// Stable UI tag used by the native settings view and legacy web reference.
+    /// Stable UI tag used by the native settings view.
     var wireTag: String { rawValue }
 }
 
@@ -153,17 +153,12 @@ class RemoteDetector {
     var currentDeviceName: String? {
         guard let device = currentDevice else { return nil }
         let rawName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String
-        let serial = IOHIDDeviceGetProperty(device, kIOHIDSerialNumberKey as CFString) as? String
         let productID = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int
-
-        // A1962 exposes its serial as the HID product string instead of the
-        // user-visible Bluetooth name. Show a friendly model plus a stable
-        // suffix so two A1962 remotes do not look like the same device.
-        if productID == 0x026D {
-            let suffix = serial.flatMap { $0.isEmpty ? nil : String($0.suffix(4)) }
-            return suffix.map { "Siri Remote A1962 · \($0)" } ?? "Siri Remote A1962"
+        if let rawName = rawName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawName.isEmpty {
+            return rawName
         }
-        return rawName
+        return productID == 0x026D ? "Siri Remote A1962" : "Siri Remote"
     }
 
     /// Hardware generation of the currently connected remote. Derived from the
@@ -189,18 +184,20 @@ class RemoteDetector {
         return IOHIDDeviceGetProperty(device, kIOHIDSerialNumberKey as CFString) as? String
     }
 
-    /// Display model name derived from product name + generation. Used as the
-    /// "型号" field in the settings UI. Examples:
-    ///   "Siri Remote（第 1 代）"   for Gen 1
-    ///   "Siri Remote（第 2 代）"   for Gen 2
-    ///   "Siri Remote"             when generation is unknown
+    /// Hardware model identifier shown independently from the user-visible
+    /// device name. Apple product strings commonly contain values like A1962.
     var currentModel: String {
-        let base = currentDeviceName ?? persistedDeviceName ?? "Siri Remote"
-        switch currentGeneration ?? persistedGeneration {
-        case .gen1: return "\(base)（第 1 代）"
-        case .gen2: return "\(base)（第 2 代）"
-        case .none: return base
+        let name = currentDeviceName ?? persistedDeviceName
+        if let name,
+           let range = name.range(of: "A[0-9]{4}", options: .regularExpression) {
+            return String(name[range]).uppercased()
         }
+        if let device = currentDevice,
+           let productID = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int,
+           productID == 0x026D {
+            return "A1962"
+        }
+        return "Siri Remote"
     }
 
     /// Timestamp of the last successful connection. Persisted to UserDefaults

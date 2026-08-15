@@ -17,6 +17,7 @@ let package = Package(
             sources: [
                 "main.swift",
                 "SiriRemoteApp.swift",
+                "ApplicationHotKeyManager.swift",
                 "MenuBarManager.swift",
                 "RemoteDetector.swift",
                 "RemoteInputHandler.swift",
@@ -28,6 +29,9 @@ let package = Package(
                 "SystemVolume.swift",
                 "AudioProbe.swift",
                 "BleAudioProbe.swift",
+                "RemoteMicrophoneXPC.swift",
+                "RemoteMicrophoneController.swift",
+                "RemoteMicrophoneAudio.swift",
                 "SettingsWindowController.swift",
                 "SettingsUI/Theme.swift",
                 "SettingsUI/RemoteArt.swift",
@@ -59,6 +63,7 @@ let package = Package(
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("AudioToolbox"),
+                .linkedFramework("AVFoundation"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("AppKit"),
                 .linkedFramework("ServiceManagement")

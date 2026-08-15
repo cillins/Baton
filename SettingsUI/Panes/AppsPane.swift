@@ -6,9 +6,7 @@
 //  name + 168px-wide profile picker + 移除 ghost button). Toggles an
 //  inline 添加应用 list bound to the current profile.
 //
-//  Empty-state note + footnote + picker footer match React `AppsPane.jsx`
-//  verbatim. Per CSS .app-row / .app-ic / .app-ic-img / .app-row .map-sel /
-//  .app-remove / .app-add / .app-picker / .map-foot / .map-note.
+//  Includes the empty state, explanatory note, picker footer, and app rows.
 //
 
 import SwiftUI
