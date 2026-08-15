@@ -16,7 +16,7 @@ Baton 是一款 macOS 菜单栏应用，把 Apple Siri Remote 变成可自定义
 
 Baton 已能从 A1962 的蓝牙 HCI 数据中提取并解码 16 kHz 单声道 Opus 音频，并通过 `Baton Remote Microphone` 虚拟输入设备提供给录音和会议应用。此功能是完全可选的实验功能：未配置时不会注册采集组件，也不影响按键、触控板、陀螺仪或其他功能。它要求 macOS 13 或更高版本，并需要用户另行从 Apple 官方安装 **Bluetooth Logging for macOS / PacketLogger** 及其 **Bluetooth Logging 配置描述文件**。
 
-发布版 DMG 会在根目录单独附带 `Bluetooth Logging for macOS.mobileconfig`，方便需要测试遥控器麦克风的用户自行安装；该文件不会写入 `Baton.app`，也不会自动安装。Apple 配置会在安装 3 天后自动移除，届时需要用户再次安装。设置页的“选择并安装”入口会读取所选配置并确认其确实是 `Bluetooth Logging for macOS`，避免误装 iOS 配置，然后再交给系统设置确认安装。
+Apple 的配置文件内明确标注为机密资料并禁止分发，因此 Baton 不会把该 `.mobileconfig` 提交到公开仓库或放进公开 DMG。设置页提供“选择并安装”入口；Baton 会读取用户自行取得的配置并确认其确实是 `Bluetooth Logging for macOS`，避免误装 iOS 配置，然后再交给系统设置确认安装。该配置会在安装 3 天后自动移除，届时需要用户再次安装。
 
 在“设置 → 遥控器麦克风”中需要分别：
 
@@ -99,7 +99,7 @@ open Baton.app
 
 `create_app_bundle.sh` 会生成 `Baton.app`、复制图标、虚拟麦克风驱动、采集辅助程序和 Opus 库，并使用 `Baton.entitlements` 进行签名。
 
-`create_dmg.sh` 会在 `dist/` 下生成包含 `Baton.app` 和“应用程序”快捷方式的安装镜像。正式发布时通过 `BATON_BLUETOOTH_PROFILE` 传入 Apple 的 macOS 配置文件，可将它作为独立文件放在 DMG 根目录。
+`create_dmg.sh` 会在 `dist/` 下生成包含 `Baton.app` 和“应用程序”快捷方式的安装镜像。公开发布包不包含 Apple 的受限配置文件。
 
 发布时可显式传入版本号和构建号，确保应用版本、DMG 文件名和 Git 标签一致：
 
@@ -108,7 +108,7 @@ BATON_VERSION="1.0.0" BATON_BUILD_NUMBER="1" ./create_app_bundle.sh
 ./create_dmg.sh
 ```
 
-如需生成包含麦克风配置文件的安装镜像，可显式传入 Apple macOS 配置；脚本会校验其 Payload，配置只放在 DMG 根目录，不会进入应用包：
+仅在有权使用该文件的本地测试环境中，可显式传入 Apple macOS 配置；脚本会校验其 Payload，配置只放在本地 DMG 根目录，不会进入应用包。不要公开分发由此生成的镜像：
 
 ```bash
 BATON_BLUETOOTH_PROFILE="/path/to/BluetoothLogging.mobileconfig" ./create_dmg.sh
